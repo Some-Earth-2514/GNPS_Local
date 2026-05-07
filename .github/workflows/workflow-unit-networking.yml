@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: Configure Git for symlinks
-      run: git config --system core.symlinks false
+      run: git config --global core.symlinks false
 
     - name: Checkout
       uses: actions/checkout@v4
