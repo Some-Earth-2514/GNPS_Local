@@ -9,6 +9,7 @@ jobs:
     - name: Configure Git for long paths
       run: git config --global core.longpaths true
       if: runner.os == 'Windows'
+      shell: pwsh
 
     - name: Checkout
       uses: actions/checkout@v4
