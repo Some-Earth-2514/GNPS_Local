@@ -6,10 +6,8 @@ jobs:
   test-fbmn:
     runs-on: ubuntu-latest
     steps:
-    - name: Configure Git for long paths
-      run: git config --global core.longpaths true
-      if: runner.os == 'Windows'
-      shell: pwsh
+    - name: Configure Git for symlinks
+      run: git config --global core.symlinks false
 
     - name: Checkout
       uses: actions/checkout@v4
