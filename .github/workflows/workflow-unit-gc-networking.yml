@@ -6,9 +6,14 @@ jobs:
   test-gc-networking:
     runs-on: ubuntu-latest
     steps:
+    - name: Configure Git for long paths
       run: git config --system core.longpaths true
       if: runner.os == 'Windows'
-      
+
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
     - uses: actions/checkout@v4
       with:
         submodules: recursive

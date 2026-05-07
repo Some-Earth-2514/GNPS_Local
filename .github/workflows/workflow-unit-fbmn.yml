@@ -6,9 +6,11 @@ jobs:
   test-fbmn:
     runs-on: ubuntu-latest
     steps:
-      run: git config --system core.longpaths true
+    - name: Configure Git for long paths
+      run: git config --global core.longpaths true
       if: runner.os == 'Windows'
 
+    - name: Checkout
       uses: actions/checkout@v4
       with:
         submodules: recursive
