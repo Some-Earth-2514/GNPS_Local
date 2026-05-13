@@ -35,8 +35,8 @@
         <th style="width: 24%; padding-left: 16px;">Job Name</th>
         <th style="width: 15%;">Job ID</th>
         <th style="width: 15%;">Workflow</th>
-        <th style="width: 15%;">Status</th>
-        <th style="width: 15%;">Created</th>
+        <th style="width: 10%;">Status</th>
+        <th style="width: 20%;">Created</th>
         <th style="width: 8%;">Duration</th>
         <th style="width: 8%;"></th>
       </tr>
@@ -58,7 +58,7 @@
         <td>
           <span class="badge badge-{{ job.status }}">{{ job.status | upper }}</span>
         </td>
-        <td class="muted">{{ job.created_at[:16] | replace('T', ' ') }}</td>
+        <td class="muted ts-cell" data-iso="{{ job.created_at }}">{{ job.created_at[:16] | replace('T', ' ') }}</td>
         <td class="duration-cell muted">—</td>
         <td style="text-align: right; padding-right: 16px;">
           <a href="/job/{{ job.id }}" class="btn btn-ghost" style="padding:4px 10px; font-size:11px;">View</a>
@@ -162,6 +162,18 @@ function updateJobStatuses() {
 }
 
 updateDurations();
+
+document.querySelectorAll('.ts-cell[data-iso]').forEach(cell => {
+  const iso = cell.getAttribute('data-iso');
+  if (!iso) return;
+  try {
+    cell.textContent = new Date(iso).toLocaleString(undefined, {
+      year:'numeric', month:'short', day:'numeric',
+      hour:'2-digit', minute:'2-digit'
+    });
+  } catch(e) {}
+});
+
 const hasActive = document.querySelectorAll(
   'tr[data-status="running"], tr[data-status="queued"]'
 ).length > 0;

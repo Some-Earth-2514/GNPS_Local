@@ -3,12 +3,14 @@ GNPS Local - FastAPI application
 Replaces the ProteoSAFe web frontend for single-user local use.
 """
 
+import io
 import shutil
+import zipfile
 from pathlib import Path
 from typing import Optional, List, Annotated
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 
@@ -84,6 +86,31 @@ async def download_file(job_id: str, filename: str):
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
     return FileResponse(str(file_path), filename=file_path.name)
+
+
+@app.get("/api/job/{job_id}/download_all")
+async def download_all_files(job_id: str):
+    """Stream all output files for a job as a single zip archive."""
+    job = orc.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    output_dir = orc.JOBS_ROOT / job_id / "output"
+    if not output_dir.exists():
+        raise HTTPException(404, "No outputs yet")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(output_dir.rglob("*")):
+            if f.is_file():
+                zf.write(f, f.relative_to(output_dir))
+    buf.seek(0)
+
+    zip_name = f"gnps_job_{job_id}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_name}"},
+    )
 
 @app.post("/api/job/{job_id}/cancel")
 async def cancel_job(job_id: str):
@@ -296,3 +323,51 @@ async def _save_single_upload(job, file: UploadFile, name: str):
         file_path = job.input_dir / name
         with open(file_path, "wb") as out:
             shutil.copyfileobj(file.file, out)
+
+# ── Libraries page ─────────────────────────────────────────────────────────────
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+        "libraries": orc.list_libraries(),
+        "storage": orc.get_storage_info(),
+    })
+
+
+# ── Library API ────────────────────────────────────────────────────────────────
+
+@app.get("/api/libraries")
+async def api_list_libraries():
+    return orc.list_libraries()
+
+
+@app.post("/api/libraries/upload")
+async def api_upload_library(files: List[UploadFile] = File(...)):
+    saved = []
+    for f in files:
+        if not f.filename:
+            continue
+        safe_name = Path(f.filename).name
+        if not safe_name.lower().endswith(".mgf"):
+            continue
+        dest = orc.LIBRARIES_ROOT / safe_name
+        with open(dest, "wb") as out:
+            shutil.copyfileobj(f.file, out)
+        saved.append(safe_name)
+    return {"saved": saved}
+
+
+@app.delete("/api/libraries/{filename}")
+async def api_delete_library(filename: str):
+    ok = orc.delete_library(filename)
+    if not ok:
+        raise HTTPException(404, "Library not found")
+    return {"deleted": filename}
+
+
+# ── Storage info ───────────────────────────────────────────────────────────────
+
+@app.get("/api/storage")
+async def api_storage():
+    return orc.get_storage_info()

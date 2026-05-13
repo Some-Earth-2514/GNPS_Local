@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Settings — GNPS Local{% endblock %}
+{% block content %}
+
+<h1>Settings</h1>
+<p class="subtitle">Manage spectral libraries and view storage information.</p>
+
+<!-- Storage info -->
+<div class="card" style="margin-bottom:16px;">
+  <h2>Storage</h2>
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; font-size:12px;">
+    <div>
+      <div class="muted" style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Jobs directory</div>
+      <code style="font-size:11px; word-break:break-all;">{{ storage.jobs_dir }}</code>
+    </div>
+    <div>
+      <div class="muted" style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Libraries directory</div>
+      <code style="font-size:11px; word-break:break-all;">{{ storage.libraries_dir }}</code>
+    </div>
+    <div>
+      <div class="muted" style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Total jobs</div>
+      <span style="font-size:13px; font-weight:600;">{{ storage.job_count }}</span>
+    </div>
+    <div>
+      <div class="muted" style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Disk used (jobs)</div>
+      <span id="disk-used" style="font-size:13px; font-weight:600;">{{ storage.total_mb }} MB</span>
+    </div>
+  </div>
+</div>
+
+<!-- Library management -->
+<div class="card">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+    <h2 style="margin:0;">Spectral Libraries</h2>
+    <span class="muted" style="font-size:11px;" id="lib-count">{{ libraries | length }} file(s)</span>
+  </div>
+
+  <!-- Upload zone -->
+  <div class="file-drop" id="lib-drop-zone" style="margin-bottom:16px;">
+    <input type="file" id="lib-file-input" multiple accept=".mgf">
+    <div class="file-placeholder">
+      Drop .mgf library files here or click to browse<br>
+      <span style="font-size:10px; color:var(--muted);">Accepts multiple files · Existing files with the same name will be overwritten</span>
+    </div>
+    <div class="file-list" id="lib-file-list"></div>
+  </div>
+
+  <div style="display:flex; gap:10px; align-items:center; margin-bottom:20px;">
+    <button class="btn btn-primary" id="upload-btn" onclick="uploadLibraries()" disabled>Upload</button>
+    <span id="upload-status" style="font-size:12px; color:var(--muted);"></span>
+  </div>
+
+  <!-- Library search -->
+  <div style="margin-bottom:12px;">
+    <input type="text" id="lib-search" placeholder="Search libraries by name…"
+           oninput="filterLibraries()"
+           style="width:100%; background:var(--bg); border:1px solid var(--border);
+                  border-radius:6px; color:var(--text); font-family:var(--font);
+                  font-size:12px; padding:7px 12px;">
+  </div>
+
+  <!-- Installed libraries table -->
+  <div id="libs-table-wrap">
+    {% if libraries %}
+    <table id="libs-table">
+      <thead>
+        <tr>
+          <th>Filename</th>
+          <th style="width:90px; text-align:right;">Size</th>
+          <th style="width:70px;"></th>
+        </tr>
+      </thead>
+      <tbody id="libs-tbody">
+        {% for lib in libraries %}
+        <tr id="lib-row-{{ lib.name | replace('.', '-') | replace(' ', '_') }}">
+          <td class="mono" style="font-size:11px;">{{ lib.name }}</td>
+          <td class="muted" style="text-align:right; font-size:11px;">
+            {%- set b = lib.size_bytes -%}
+            {%- if b >= 1e12 %}{{ (b/1e12)|round(1) }} TB
+            {%- elif b >= 1e9 %}{{ (b/1e9)|round(1) }} GB
+            {%- elif b >= 1e6 %}{{ (b/1e6)|round(1) }} MB
+            {%- else %}{{ (b/1e3)|round(1) }} KB{% endif -%}
+          </td>
+          <td style="text-align:right;">
+            <button class="btn btn-ghost"
+                    style="padding:3px 9px; font-size:11px; color:var(--danger); border-color:var(--danger);"
+                    onclick="deleteLibrary('{{ lib.name }}')">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div id="libs-empty" style="text-align:center; padding:32px; color:var(--muted); font-size:12px;">
+      No libraries installed. Upload .mgf files above.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const fileInput = document.getElementById('lib-file-input');
+const uploadBtn = document.getElementById('upload-btn');
+const uploadStatus = document.getElementById('upload-status');
+
+// Enable upload button when files are selected.
+// Drop/click handling is done by the global _initDropZone in base.html.
+fileInput.addEventListener('change', () => {
+  uploadBtn.disabled = fileInput.files.length === 0;
+});
+
+async function uploadLibraries() {
+  const files = Array.from(fileInput.files);
+  if (!files.length) return;
+
+  uploadBtn.disabled = true;
+  uploadBtn.textContent = 'Uploading…';
+  uploadStatus.textContent = '';
+
+  const data = new FormData();
+  files.forEach(f => data.append('files', f));
+
+  try {
+    const r = await fetch('/api/libraries/upload', { method: 'POST', body: data });
+    const d = await r.json();
+    if (r.ok) {
+      uploadStatus.textContent = `Saved: ${d.saved.join(', ')}`;
+      uploadBtn.textContent = 'Upload';
+      fileList.innerHTML = '';
+      fileInput.value = '';
+      await refreshLibraries();
+    } else {
+      uploadStatus.textContent = d.detail || 'Upload failed';
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = 'Upload';
+    }
+  } catch(e) {
+    uploadStatus.textContent = 'Network error: ' + e.message;
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = 'Upload';
+  }
+}
+
+async function deleteLibrary(filename) {
+  if (!confirm(`Delete ${filename}? This cannot be undone.`)) return;
+  try {
+    const r = await fetch(`/api/libraries/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+    if (r.ok) {
+      await refreshLibraries();
+    } else {
+      alert('Delete failed.');
+    }
+  } catch(e) {
+    alert('Network error: ' + e.message);
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes >= 1e12) return (bytes / 1e12).toFixed(1) + ' TB';
+  if (bytes >= 1e9)  return (bytes / 1e9).toFixed(1) + ' GB';
+  if (bytes >= 1e6)  return (bytes / 1e6).toFixed(1) + ' MB';
+  return (bytes / 1e3).toFixed(1) + ' KB';
+}
+
+// Refresh disk-used display from live API
+async function refreshStorageDisplay() {
+  try {
+    const r = await fetch('/api/storage');
+    const d = await r.json();
+    const el = document.getElementById('disk-used');
+    if (el) el.textContent = formatBytes(d.total_bytes);
+  } catch(e) {}
+}
+refreshStorageDisplay();
+
+function filterLibraries() {
+  const q = document.getElementById('lib-search').value.toLowerCase();
+  document.querySelectorAll('#libs-table-wrap table tbody tr').forEach(row => {
+    const name = row.cells[0] ? row.cells[0].textContent.toLowerCase() : '';
+    row.style.display = name.includes(q) ? '' : 'none';
+  });
+}
+
+async function refreshLibraries() {
+  const r = await fetch('/api/libraries');
+  const libs = await r.json();
+  const wrap = document.getElementById('libs-table-wrap');
+  const countEl = document.getElementById('lib-count');
+  countEl.textContent = `${libs.length} file(s)`;
+
+  if (!libs.length) {
+    wrap.innerHTML = `<div id="libs-empty" style="text-align:center;padding:32px;color:var(--muted);font-size:12px;">
+      No libraries installed. Upload .mgf files above.</div>`;
+    return;
+  }
+
+  let html = `<table id="libs-table"><thead><tr>
+    <th>Filename</th>
+    <th style="width:90px;text-align:right;">Size</th>
+    <th style="width:70px;"></th>
+  </tr></thead><tbody>`;
+
+  libs.forEach(lib => {
+    html += `<tr>
+      <td class="mono" style="font-size:11px;">${lib.name}</td>
+      <td class="muted" style="text-align:right;font-size:11px;">${_fmtBytes(lib.size_bytes)}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost"
+                style="padding:3px 9px;font-size:11px;color:var(--danger);border-color:var(--danger);"
+                onclick="deleteLibrary('${lib.name}')">Delete</button>
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+  filterLibraries();
+  refreshStorageDisplay();
+}
+</script>
+{% endblock %}

@@ -14,7 +14,7 @@
     <button class="btn btn-primary" onclick="restartJob()">Restart Job</button>
   </div>
 </div>
-<p class="subtitle">{{ job.workflow | replace('_', ' ') | title }} &nbsp;·&nbsp; Created {{ job.created_at[:19] | replace('T', ' ') }}</p>
+<p class="subtitle">{{ job.workflow | replace('_', ' ') | title }} &nbsp;·&nbsp; Created <span id="job-created-ts" data-iso="{{ job.created_at }}">{{ job.created_at[:16] | replace('T', ' ') }}</span></p>
 
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
 
@@ -35,7 +35,14 @@
 
   <!-- Output files -->
   <div class="card">
-    <h2>Output Files</h2>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+      <h2 style="margin:0;">Output Files</h2>
+      <a id="download-all-btn" href="/api/job/{{ job.id }}/download_all"
+         class="btn btn-ghost"
+         style="font-size:11px; padding:4px 12px; opacity:0.4; pointer-events:none;">
+        ↓ Download All
+      </a>
+    </div>
     <div id="output-files-container">
     {% if output_files %}
     <table><tbody>
@@ -160,6 +167,10 @@ async function fetchFiles() {
   const container = document.getElementById('output-files-container');
   if (!container) return;
   if (!files.length) return;
+
+  const dlBtn = document.getElementById('download-all-btn');
+  if (dlBtn) { dlBtn.style.opacity = '1'; dlBtn.style.pointerEvents = 'auto'; }
+
   let html = '<table><tbody>';
   files.forEach(f => {
     const kb = (f.size / 1024).toFixed(1);
@@ -186,5 +197,24 @@ async function poll() {
 }
 
 poll();
+
+(function() {
+  const tbl = document.querySelector('#output-files-container table');
+  if (tbl) {
+    const btn = document.getElementById('download-all-btn');
+    if (btn) { btn.style.opacity = '1'; btn.style.pointerEvents = 'auto'; }
+  }
+})();
+
+(function() {
+  const el = document.getElementById('job-created-ts');
+  if (!el) return;
+  try {
+    el.textContent = new Date(el.dataset.iso).toLocaleString(undefined, {
+      year:'numeric', month:'short', day:'numeric',
+      hour:'2-digit', minute:'2-digit'
+    });
+  } catch(e) {}
+})();
 </script>
 {% endblock %}
