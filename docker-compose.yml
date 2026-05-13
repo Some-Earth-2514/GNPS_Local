@@ -1,0 +1,39 @@
+services:
+  gnps-local:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: gnps-local:latest
+    container_name: gnps-local
+
+    ports:
+      # Bind to 127.0.0.1 so Chrome/Edge on Windows accepts the address.
+      # Access at: http://localhost:8000
+      - "127.0.0.1:8000:8000"
+
+    volumes:
+      # ── Jobs ──────────────────────────────────────────────────────────────
+      # Bind-mounted to a real folder next to the repo on your machine.
+      # Browse job outputs directly in File Explorer at:
+      #   <repo folder>\gnps_jobs\
+      - ./gnps_jobs:/data/jobs
+
+      # ── Spectral Libraries ────────────────────────────────────────────────
+      # Drop .mgf files into <repo folder>\gnps_libraries\
+      # OR upload them via Settings in the web UI.
+      - ./gnps_libraries:/data/libraries
+
+    environment:
+      # Paths inside the container — do not change these.
+      GNPS_JOBS_DIR: /data/jobs
+      GNPS_LIBRARIES_DIR: /data/libraries
+      PORT: 8000
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s

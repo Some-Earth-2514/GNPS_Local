@@ -8,3 +8,7 @@ Makefile.credentials
 *.mgf
 *.log
 *.log.??????????
+/gnps_jobs/*
+!/gnps_jobs/.gitkeep
+/libraries/*
+/lib_holder/*
