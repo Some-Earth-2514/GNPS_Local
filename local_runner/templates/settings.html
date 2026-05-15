@@ -3,7 +3,7 @@
 {% block content %}
 
 <h1>Settings</h1>
-<p class="subtitle">Manage spectral libraries and view storage information.</p>
+<p class="subtitle">Manage spectral libraries, view storage, and inspect workflow performance.</p>
 
 <!-- Storage info -->
 <div class="card" style="margin-bottom:16px;">
@@ -26,6 +26,45 @@
       <span id="disk-used" style="font-size:13px; font-weight:600;">{{ storage.total_mb }} MB</span>
     </div>
   </div>
+</div>
+
+<!-- Aggregate timing dashboard -->
+<div class="card" style="margin-bottom:16px;">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+    <h2 style="margin:0;">Workflow Performance</h2>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <select id="agg-workflow-filter" onchange="loadAggregate()"
+              style="background:var(--bg); border:1px solid var(--border); border-radius:6px;
+                     color:var(--text); font-family:var(--font); font-size:12px; padding:5px 10px;">
+        <option value="all">All Workflows</option>
+        <option value="fbmn">Feature Based MN</option>
+        <option value="molecular_networking">Molecular Networking</option>
+        <option value="mshub_gc">GC-MS Deconvolution</option>
+        <option value="mcn">Molecular Community Networking</option>
+      </select>
+      <span class="muted" style="font-size:11px;" id="agg-job-count"></span>
+    </div>
+  </div>
+
+  <div id="agg-summary" style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px;"></div>
+
+  <!-- Stacked bar showing avg time proportion per track -->
+  <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:8px;">
+    Average time distribution
+  </div>
+  <div id="agg-bar" style="
+    display:flex; height:24px; border-radius:6px; overflow:hidden;
+    background:var(--surface2); margin-bottom:12px;
+  "></div>
+
+  <!-- Per-step avg duration bars -->
+  <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:10px;">
+    Average duration per step
+  </div>
+  <div id="agg-steps" style="display:flex; flex-direction:column; gap:6px;"></div>
+
+  <!-- Legend -->
+  <div id="agg-legend" style="display:flex; flex-wrap:wrap; gap:8px 16px; font-size:11px; margin-top:14px;"></div>
 </div>
 
 <!-- Library management -->
@@ -183,6 +222,126 @@ function filterLibraries() {
   });
 }
 
+// ── Aggregate timing dashboard ───────────────────────────────────────────────
+const AGG_TRACKS = [
+  { match: /metadata_merge|input_validation/i,                                                  cssVar: '--t-metadata',    label: 'Metadata'         },
+  { match: /reformat_quant|filter_spectra/i,                                                    cssVar: '--t-spectra',     label: 'Spectra'          },
+  { match: /prep_networking_params|networking_pairs|merge_pairs|filter_edges/i,                 cssVar: '--t-networking',  label: 'Networking'       },
+  { match: /library_search_prep|library_search|merge_libsearch|libsearch_db_annot/i,            cssVar: '--t-library',     label: 'Library'          },
+  { match: /clusterinfosummary_for_featurenetworks|network_edges_display|enrich_clusterinfo/i,  cssVar: '--t-cluster',     label: 'Cluster & Edges'  },
+  { match: /graphml|convert_graph|mcn/i,                                                        cssVar: '--t-graphml',     label: 'GraphML / MCN'    },
+];
+
+function aggTrack(stepName) {
+  for (const t of AGG_TRACKS) if (t.match.test(stepName)) return t;
+  return { cssVar: '--t-other', label: 'Other' };
+}
+
+function getCssVarAgg(v) {
+  return getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+}
+
+function fmtDurAgg(s) {
+  if (s >= 3600) return (s/3600).toFixed(1) + 'h';
+  if (s >= 60)   return (s/60).toFixed(1) + 'm';
+  return s.toFixed(1) + 's';
+}
+
+async function loadAggregate() {
+  const wf = document.getElementById('agg-workflow-filter').value;
+  let data;
+  try {
+    const r = await fetch(`/api/timings/aggregate?workflow=${wf}`);
+    data = await r.json();
+  } catch(e) { return; }
+  _lastAggData = data;
+  renderAggregate(data);
+}
+
+let _lastAggData = null;
+
+function renderAggregate(data) {
+  const countEl = document.getElementById('agg-job-count');
+  if (countEl) countEl.textContent = `${data.job_count} job(s)`;
+
+  // Summary cards
+  const summaryEl = document.getElementById('agg-summary');
+  if (summaryEl) {
+    const mostExpensive = data.steps.length ? data.steps[0].step : '—';
+    const mostFailed    = data.most_failed_step || '—';
+    summaryEl.innerHTML = [
+      { label: 'Avg total runtime', value: fmtDurAgg(data.avg_total_s) },
+      { label: 'Slowest step',      value: mostExpensive },
+      { label: 'Most failed step',  value: mostFailed },
+    ].map(c => `
+      <div style="background:var(--surface2); border-radius:6px; padding:12px 14px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:6px;">${c.label}</div>
+        <div style="font-size:13px; font-weight:600; word-break:break-all;">${c.value}</div>
+      </div>
+    `).join('');
+  }
+
+  if (!data.steps.length) {
+    document.getElementById('agg-bar').innerHTML   = '<div style="width:100%;background:var(--surface2);border-radius:6px;"></div>';
+    document.getElementById('agg-steps').innerHTML = '<div class="muted" style="font-size:12px;padding:12px 0;">No timing data yet. Run a job to see performance metrics.</div>';
+    document.getElementById('agg-legend').innerHTML = '';
+    return;
+  }
+
+  // Stacked bar (proportional avg_s)
+  const totalAvg = data.steps.reduce((s, st) => s + st.avg_s, 0);
+  const barEl = document.getElementById('agg-bar');
+  barEl.innerHTML = '';
+  const seenLabels = new Set();
+  const legendItems = [];
+
+  data.steps.forEach(st => {
+    const track = aggTrack(st.step);
+    const pct   = totalAvg > 0 ? (st.avg_s / totalAvg) * 100 : 0;
+    const color = getCssVarAgg(track.cssVar);
+    const seg   = document.createElement('div');
+    seg.style.cssText = `width:${pct}%; background:${color}; min-width:${pct>0?'3px':'0'};`;
+    seg.title = `${st.step}: ${fmtDurAgg(st.avg_s)} avg`;
+    barEl.appendChild(seg);
+    if (!seenLabels.has(track.label)) {
+      seenLabels.add(track.label);
+      legendItems.push({ label: track.label, cssVar: track.cssVar });
+    }
+  });
+
+  // Per-step bars
+  const maxAvg   = data.steps[0].avg_s;
+  const stepsEl  = document.getElementById('agg-steps');
+  stepsEl.innerHTML = data.steps.map(st => {
+    const track   = aggTrack(st.step);
+    const color   = getCssVarAgg(track.cssVar);
+    const barPct  = maxAvg > 0 ? (st.avg_s / maxAvg) * 100 : 0;
+    const failPct = st.count > 0 ? Math.round(st.failure_count / st.count * 100) : 0;
+    return `
+      <div style="display:grid; grid-template-columns:180px 1fr 70px 60px; align-items:center; gap:10px; font-size:11px;">
+        <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text);" title="${st.step}">${st.step}</div>
+        <div style="background:var(--surface2); border-radius:3px; height:10px; overflow:hidden;">
+          <div style="width:${barPct}%; height:100%; background:${color}; border-radius:3px;"></div>
+        </div>
+        <div class="muted" style="text-align:right;">${fmtDurAgg(st.avg_s)}</div>
+        <div style="text-align:right; color:${failPct>0?'var(--danger)':'var(--muted)'};">${failPct>0 ? failPct+'% fail' : ''}</div>
+      </div>
+    `;
+  }).join('');
+
+  // Legend
+  document.getElementById('agg-legend').innerHTML = legendItems.map(item => `
+    <span style="display:flex;align-items:center;gap:5px;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${getCssVarAgg(item.cssVar)};flex-shrink:0;"></span>
+      ${item.label}
+    </span>
+  `).join('');
+}
+
+loadAggregate();
+
+window._onThemeChange = () => { if (_lastAggData) renderAggregate(_lastAggData); };
+
 async function refreshLibraries() {
   const r = await fetch('/api/libraries');
   const libs = await r.json();
@@ -216,7 +375,7 @@ async function refreshLibraries() {
 
   html += '</tbody></table>';
   wrap.innerHTML = html;
-  filterLibraries();
+  filterLibraries(); // re-apply search after refresh
   refreshStorageDisplay();
 }
 </script>

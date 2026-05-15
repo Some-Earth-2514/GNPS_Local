@@ -41,6 +41,14 @@
       --badge-canceled-bg: var(--badge-failed-bg);
       --badge-canceled-text: var(--badge-failed-text);
       --badge-canceled-border: var(--badge-failed-border);
+
+      --t-metadata:   #1d6db3;
+      --t-spectra:    #7c3aed;
+      --t-networking: #c2570d;
+      --t-library:    #dc2626;
+      --t-cluster:    #0e7490;
+      --t-graphml:    #15803d;
+      --t-other:      #636c76;
     }
 
     :root[data-theme="light"] {
@@ -76,6 +84,14 @@
       --badge-canceled-bg: var(--badge-failed-bg);
       --badge-canceled-text: var(--badge-failed-text);
       --badge-canceled-border: var(--badge-failed-border);
+
+      --t-metadata:   #4f9eff;
+      --t-spectra:    #c084fc;
+      --t-networking: #fb923c;
+      --t-library:    #f87171;
+      --t-cluster:    #38bdf8;
+      --t-graphml:    #4ade80;
+      --t-other:      #7d8590;
     }
 
     *, *::before, *::after { transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
@@ -472,6 +488,7 @@ function toggleTheme() {
   localStorage.setItem('gnps-theme', next);
   const btn = document.getElementById('theme-toggle');
   if (btn) btn.textContent = next === 'dark' ? 'LIGHT' : 'DARK';
+  if (typeof window._onThemeChange === 'function') window._onThemeChange(next);
 }
 
 let _panelOpen = false;
