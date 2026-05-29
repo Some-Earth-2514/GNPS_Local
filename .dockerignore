@@ -1,0 +1,38 @@
+# Git history — not needed inside the image
+.git
+.gitignore
+
+# macOS noise
+.DS_Store
+__MACOSX
+
+# Python cache — rebuilt inside the image anyway
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.eggs
+
+# Conda environments — not used in Docker (pip-only approach)
+envs/
+*.yml
+miniconda*
+
+# Any local job data or large data files
+gnps_jobs/
+gnps_libraries/
+lib_holder/
+libraries/
+
+# Editor/IDE folders
+.vscode/
+.idea/
+
+# Local environment files
+.env
+*.env.local
+
+# Windows thumbnail cache
+Thumbs.db

@@ -41,6 +41,14 @@
       --badge-canceled-bg: var(--badge-failed-bg);
       --badge-canceled-text: var(--badge-failed-text);
       --badge-canceled-border: var(--badge-failed-border);
+
+      --t-metadata:   #1d6db3;
+      --t-spectra:    #7c3aed;
+      --t-networking: #c2570d;
+      --t-library:    #dc2626;
+      --t-cluster:    #0e7490;
+      --t-graphml:    #15803d;
+      --t-other:      #636c76;
     }
 
     :root[data-theme="light"] {
@@ -76,6 +84,14 @@
       --badge-canceled-bg: var(--badge-failed-bg);
       --badge-canceled-text: var(--badge-failed-text);
       --badge-canceled-border: var(--badge-failed-border);
+
+      --t-metadata:   #4f9eff;
+      --t-spectra:    #c084fc;
+      --t-networking: #fb923c;
+      --t-library:    #f87171;
+      --t-cluster:    #38bdf8;
+      --t-graphml:    #4ade80;
+      --t-other:      #7d8590;
     }
 
     *, *::before, *::after { transition: background-color 0.2s, border-color 0.2s, color 0.2s; }
@@ -354,47 +370,71 @@
   <a href="/submit/fbmn">FBMN</a>
   <a href="/submit/mshub_gc">GC-MS</a>
   <a href="/submit/mcn">MCN</a>
-  <div style="margin-left:auto;">
+  <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
     <button id="theme-toggle" onclick="toggleTheme()" style="
-      background:transparent;
-      border:1px solid var(--border);
-      border-radius:6px;
-      color:var(--muted);
-      font-family:var(--font);
-      font-size:11px;
-      padding:4px 10px;
-      cursor:pointer;
-      letter-spacing:0.5px;
+      background:transparent; border:1px solid var(--border); border-radius:6px;
+      color:var(--muted); font-family:var(--font); font-size:11px;
+      padding:4px 10px; cursor:pointer; letter-spacing:0.5px;
       transition:border-color 0.15s, color 0.15s;
     ">LIGHT</button>
+    <a href="/settings" id="gear-btn" title="Settings" style="
+      display:inline-flex; align-items:center; justify-content:center;
+      background:transparent; border:1px solid var(--border); border-radius:6px;
+      color:var(--muted); font-size:20px; line-height:1;
+      padding:2px 8px; cursor:pointer; text-decoration:none;
+      transition:border-color 0.15s, color 0.15s;
+    ">&#9881;</a>
   </div>
 </nav>
+
+
 <main>
 {% block content %}{% endblock %}
 </main>
 <script>
-// File drop zones
-document.querySelectorAll('.file-drop').forEach(zone => {
-  const input = zone.querySelector('input[type=file]');
-  zone.addEventListener('click', () => input.click());
+// ── Global file-drop zone handler ────────────────────────────────────────────
+// Handles all .file-drop zones: click-to-browse, drag-and-drop, file list update.
+// Zones that manage their own listeners (e.g. settings page) call
+// e.stopPropagation() on their zone's click to avoid double-open.
+function _initDropZone(zone) {
+  const input       = zone.querySelector('input[type=file]');
+  const placeholder = zone.querySelector('.file-placeholder');
+  const fileList    = zone.querySelector('.file-list');
+  if (!input) return;
+
+  // Click zone → open file picker (guard: ignore clicks that originated on the input itself)
+  zone.addEventListener('click', e => {
+    if (e.target === input) return;
+    input.click();
+  });
+
   zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
-  zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+  zone.addEventListener('dragleave', e => {
+    // Only remove class if leaving the zone entirely (not a child element)
+    if (!zone.contains(e.relatedTarget)) zone.classList.remove('drag-over');
+  });
   zone.addEventListener('drop', e => {
     e.preventDefault();
     zone.classList.remove('drag-over');
-    input.files = e.dataTransfer.files;
-    updateFileList(zone, input);
+    // DataTransfer is read-only — reassign via a new FileList isn't possible in all
+    // browsers; use a DataTransfer object to set files properly
+    const dt = new DataTransfer();
+    Array.from(e.dataTransfer.files).forEach(f => dt.items.add(f));
+    input.files = dt.files;
+    input.dispatchEvent(new Event('change'));
   });
-  input.addEventListener('change', () => updateFileList(zone, input));
-});
 
-function updateFileList(zone, input) {
-  const list = zone.nextElementSibling;
-  if (list && list.classList.contains('file-list')) {
-    const names = Array.from(input.files).map(f => f.name).join(', ');
-    list.textContent = names || '';
-  }
+  input.addEventListener('change', () => {
+    const files = Array.from(input.files);
+    if (placeholder) placeholder.style.display = files.length ? 'none' : 'block';
+    if (fileList) {
+      fileList.style.display = files.length ? 'block' : 'none';
+      fileList.innerHTML = files.map(f => `<div>${f.name}</div>`).join('');
+    }
+  });
 }
+
+document.querySelectorAll('.file-drop').forEach(_initDropZone);
 </script>
 {% block scripts %}{% endblock %}
 <script>
@@ -415,7 +455,10 @@ function toggleTheme() {
   localStorage.setItem('gnps-theme', next);
   const btn = document.getElementById('theme-toggle');
   if (btn) btn.textContent = next === 'dark' ? 'LIGHT' : 'DARK';
+  if (typeof window._onThemeChange === 'function') window._onThemeChange(next);
 }
+
+
 </script>
 </body>
 </html>

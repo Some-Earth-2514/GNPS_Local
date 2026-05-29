@@ -4,23 +4,28 @@ Manages job lifecycle: queued -> running -> done/failed
 All subprocess calls run in WSL2/Linux context (repo is on /mnt/d/).
 """
 
+import os
 import uuid
 import json
 import subprocess
 import threading
 import traceback
 import psutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from enum import Enum
 from typing import Optional
 
-# Absolute path to the repo on the Windows filesystem, accessed via WSL2 mount
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-# Where all job I/O lives (inside WSL2 home for speed)
-JOBS_ROOT = Path.home() / "gnps_jobs"
-JOBS_ROOT.mkdir(exist_ok=True)
+JOBS_ROOT = Path(os.environ.get("GNPS_JOBS_DIR", Path.home() / "gnps_jobs"))
+JOBS_ROOT.mkdir(parents=True, exist_ok=True)
+
+LIBRARIES_ROOT = Path(os.environ.get(
+    "GNPS_LIBRARIES_DIR",
+    REPO_ROOT / "libraries"
+))
+LIBRARIES_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 class JobStatus(str, Enum):
@@ -37,7 +42,7 @@ class Job:
         self.workflow = workflow
         self.params = params
         self.status = JobStatus.QUEUED
-        self.created_at = datetime.now().isoformat()
+        self.created_at = datetime.now(timezone.utc).isoformat()
         self.started_at: Optional[str] = None
         self.finished_at: Optional[str] = None
         self.error: Optional[str] = None
@@ -73,7 +78,7 @@ class Job:
             json.dump(self.to_dict(), f, indent=2)
 
     def log(self, msg: str):
-        ts = datetime.now().strftime("%H:%M:%S")
+        ts = datetime.now(timezone.utc).strftime("%H:%M:%S")
         line = f"[{ts}] {msg}\n"
         with open(self.log_file, "a") as f:
             f.write(line)
@@ -132,24 +137,24 @@ class Job:
             
         self.status = JobStatus.CANCELED if "user" in reason.lower() else JobStatus.FAILED
         self.error = reason
-        self.finished_at = datetime.now().isoformat()
+        self.finished_at = datetime.now(timezone.utc).isoformat()
         self._save_state()
 
     def mark_running(self):
         self.status = JobStatus.RUNNING
-        self.started_at = datetime.now().isoformat()
+        self.started_at = datetime.now(timezone.utc).isoformat()
         self._save_state()
 
     def mark_done(self):
         if self.status != JobStatus.CANCELED:
             self.status = JobStatus.DONE
-            self.finished_at = datetime.now().isoformat()
+            self.finished_at = datetime.now(timezone.utc).isoformat()
             self._save_state()
 
     def mark_failed(self, error: str):
         if self.status != JobStatus.CANCELED:
             self.status = JobStatus.FAILED
-            self.finished_at = datetime.now().isoformat()
+            self.finished_at = datetime.now(timezone.utc).isoformat()
             self.error = error
             self._save_state()
 
@@ -274,3 +279,41 @@ def _run_job(job: Job):
     except Exception as e:
         job.mark_failed(str(e))
         job.log(f"FATAL: {traceback.format_exc()}")
+
+def get_storage_info() -> dict:
+    """Return job storage path and disk usage for the UI."""
+    def _dir_size(p):
+        return sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
+
+    total_bytes = _dir_size(JOBS_ROOT) if JOBS_ROOT.exists() else 0
+    job_count = len([d for d in JOBS_ROOT.iterdir() if d.is_dir()]) if JOBS_ROOT.exists() else 0
+
+    return {
+        "jobs_dir": str(JOBS_ROOT),
+        "libraries_dir": str(LIBRARIES_ROOT),
+        "job_count": job_count,
+        "total_bytes": total_bytes,
+        "total_mb": round(total_bytes / (1024 * 1024), 1),
+    }
+
+def list_libraries() -> list:
+    """Return all .mgf files in LIBRARIES_ROOT."""
+    if not LIBRARIES_ROOT.exists():
+        return []
+    libs = []
+    for f in sorted(LIBRARIES_ROOT.glob("*.mgf")):
+        libs.append({
+            "name": f.name,
+            "size_bytes": f.stat().st_size,
+            "size_mb": round(f.stat().st_size / (1024 * 1024), 1),
+        })
+    return libs
+
+def delete_library(filename: str) -> bool:
+    """Delete a library MGF by filename. Returns True if deleted."""
+    safe_name = Path(filename).name
+    target = LIBRARIES_ROOT / safe_name
+    if target.exists() and target.suffix.lower() == ".mgf":
+        target.unlink()
+        return True
+    return False

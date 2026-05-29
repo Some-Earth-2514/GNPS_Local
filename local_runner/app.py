@@ -3,12 +3,15 @@ GNPS Local - FastAPI application
 Replaces the ProteoSAFe web frontend for single-user local use.
 """
 
+import io
+import json
 import shutil
+import zipfile
 from pathlib import Path
 from typing import Optional, List, Annotated
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 
@@ -84,6 +87,31 @@ async def download_file(job_id: str, filename: str):
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
     return FileResponse(str(file_path), filename=file_path.name)
+
+
+@app.get("/api/job/{job_id}/download_all")
+async def download_all_files(job_id: str):
+    """Stream all output files for a job as a single zip archive."""
+    job = orc.get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    output_dir = orc.JOBS_ROOT / job_id / "output"
+    if not output_dir.exists():
+        raise HTTPException(404, "No outputs yet")
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(output_dir.rglob("*")):
+            if f.is_file():
+                zf.write(f, f.relative_to(output_dir))
+    buf.seek(0)
+
+    zip_name = f"gnps_job_{job_id}.zip"
+    return StreamingResponse(
+        buf,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={zip_name}"},
+    )
 
 @app.post("/api/job/{job_id}/cancel")
 async def cancel_job(job_id: str):
@@ -296,3 +324,178 @@ async def _save_single_upload(job, file: UploadFile, name: str):
         file_path = job.input_dir / name
         with open(file_path, "wb") as out:
             shutil.copyfileobj(file.file, out)
+
+# ── Libraries page ─────────────────────────────────────────────────────────────
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    return templates.TemplateResponse("settings.html", {
+        "request": request,
+        "libraries": orc.list_libraries(),
+        "storage": orc.get_storage_info(),
+    })
+
+
+# ── Library API ────────────────────────────────────────────────────────────────
+
+@app.get("/api/libraries")
+async def api_list_libraries():
+    return orc.list_libraries()
+
+
+@app.post("/api/libraries/upload")
+async def api_upload_library(files: List[UploadFile] = File(...)):
+    saved = []
+    for f in files:
+        if not f.filename:
+            continue
+        safe_name = Path(f.filename).name
+        if not safe_name.lower().endswith(".mgf"):
+            continue
+        dest = orc.LIBRARIES_ROOT / safe_name
+        with open(dest, "wb") as out:
+            shutil.copyfileobj(f.file, out)
+        saved.append(safe_name)
+    return {"saved": saved}
+
+
+@app.delete("/api/libraries/{filename}")
+async def api_delete_library(filename: str):
+    ok = orc.delete_library(filename)
+    if not ok:
+        raise HTTPException(404, "Library not found")
+    return {"deleted": filename}
+
+
+# ── Storage info ───────────────────────────────────────────────────────────────
+
+@app.get("/api/storage")
+async def api_storage():
+    return orc.get_storage_info()
+
+
+# ── Timings API (parsed from run.log) ─────────────────────────────────────────
+
+def _parse_log_timings(log_text: str) -> list[dict]:
+    """
+    Parse step timings from run.log.
+    Log lines look like:
+      [HH:MM:SS] --- STEP: stepname ---
+      [HH:MM:SS] STEP OK
+      [HH:MM:SS] STEP FAILED (exit N)
+      [HH:MM:SS] STEP TIMED OUT ...
+      [HH:MM:SS] STEP TERMINATED BY USER
+    Duration is computed from the HH:MM:SS timestamps.
+    Handles midnight wraparound.
+    """
+    import re
+    from datetime import timedelta
+
+    step_re  = re.compile(r'^\[(\d{2}:\d{2}:\d{2})\] --- STEP: (.+?) ---')
+    end_re   = re.compile(r'^\[(\d{2}:\d{2}:\d{2})\] STEP (OK|FAILED|TIMED OUT|TERMINATED)')
+
+    def _to_secs(hms: str) -> int:
+        h, m, s = map(int, hms.split(':'))
+        return h * 3600 + m * 60 + s
+
+    pending: dict | None = None
+    results = []
+
+    for line in log_text.splitlines():
+        m = step_re.match(line)
+        if m:
+            pending = {"step": m.group(2), "start_s": _to_secs(m.group(1)), "start_hms": m.group(1)}
+            continue
+        if pending:
+            m2 = end_re.match(line)
+            if m2:
+                end_s  = _to_secs(m2.group(1))
+                start_s = pending["start_s"]
+                # Midnight wraparound: if end < start, add 86400
+                dur = end_s - start_s
+                if dur < 0:
+                    dur += 86400
+                status_word = m2.group(2)
+                status = "ok" if status_word == "OK" else (
+                    "timeout" if "TIMED" in status_word else (
+                    "canceled" if "TERMINATED" in status_word else "failed"))
+                results.append({
+                    "step":       pending["step"],
+                    "duration_s": dur,
+                    "status":     status,
+                })
+                pending = None
+
+    return results
+
+
+@app.get("/api/job/{job_id}/timings")
+async def api_job_timings(job_id: str):
+    """Parse and return per-step timings from run.log for one job."""
+    log_file = orc.JOBS_ROOT / job_id / "run.log"
+    if not log_file.exists():
+        return []
+    try:
+        return _parse_log_timings(log_file.read_text(errors="replace"))
+    except Exception:
+        return []
+
+
+@app.get("/api/timings/aggregate")
+async def api_timings_aggregate(workflow: str = "all"):
+    """Aggregate step timings across all completed jobs, optionally filtered by workflow."""
+    from collections import defaultdict
+
+    step_data: dict[str, list[float]] = defaultdict(list)
+    job_totals: list[float] = []
+    failure_counts: dict[str, int] = defaultdict(int)
+    job_count = 0
+
+    for state_file in orc.JOBS_ROOT.glob("*/state.json"):
+        try:
+            state = json.loads(state_file.read_text())
+        except Exception:
+            continue
+        if state.get("status") not in ("done", "failed"):
+            continue
+        if workflow != "all" and state.get("workflow") != workflow:
+            continue
+        log_file = state_file.parent / "run.log"
+        if not log_file.exists():
+            continue
+        try:
+            timings = _parse_log_timings(log_file.read_text(errors="replace"))
+        except Exception:
+            continue
+        if not timings:
+            continue
+
+        job_count += 1
+        job_totals.append(sum(t["duration_s"] for t in timings))
+        for t in timings:
+            step_data[t["step"]].append(t["duration_s"])
+            if t["status"] != "ok":
+                failure_counts[t["step"]] += 1
+
+    if not step_data:
+        return {"job_count": 0, "steps": [], "avg_total_s": 0, "most_failed_step": None}
+
+    steps = [
+        {
+            "step":          step,
+            "avg_s":         round(sum(d) / len(d), 2),
+            "max_s":         round(max(d), 2),
+            "min_s":         round(min(d), 2),
+            "count":         len(d),
+            "failure_count": failure_counts.get(step, 0),
+        }
+        for step, d in step_data.items()
+    ]
+    steps.sort(key=lambda s: s["avg_s"], reverse=True)
+
+    return {
+        "job_count":       job_count,
+        "steps":           steps,
+        "avg_total_s":     round(sum(job_totals) / len(job_totals), 2) if job_totals else 0,
+        "most_failed_step": max(failure_counts, key=failure_counts.get) if failure_counts else None,
+    }
