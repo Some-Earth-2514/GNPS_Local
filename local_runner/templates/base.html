@@ -371,56 +371,23 @@
   <a href="/submit/mshub_gc">GC-MS</a>
   <a href="/submit/mcn">MCN</a>
   <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
-    <button id="gear-btn" onclick="togglePanel()" title="Settings" style="
+    <button id="theme-toggle" onclick="toggleTheme()" style="
       background:transparent; border:1px solid var(--border); border-radius:6px;
-      color:var(--muted); font-family:var(--font); font-size:15px; line-height:1;
-      padding:4px 9px; cursor:pointer; transition:border-color 0.15s, color 0.15s;
-    ">&#9881;</button>
+      color:var(--muted); font-family:var(--font); font-size:11px;
+      padding:4px 10px; cursor:pointer; letter-spacing:0.5px;
+      transition:border-color 0.15s, color 0.15s;
+    ">LIGHT</button>
+    <a href="/settings" id="gear-btn" title="Settings" style="
+      display:inline-flex; align-items:center; justify-content:center;
+      background:transparent; border:1px solid var(--border); border-radius:6px;
+      color:var(--muted); font-size:20px; line-height:1;
+      padding:2px 8px; cursor:pointer; text-decoration:none;
+      transition:border-color 0.15s, color 0.15s;
+    ">&#9881;</a>
   </div>
 </nav>
 
-<!-- Settings slide-in panel -->
-<div id="settings-panel" style="
-  position:fixed; top:0; right:-300px; width:280px; height:100vh;
-  background:var(--surface); border-left:1px solid var(--border);
-  z-index:200; transition:right 0.25s ease; padding:24px 20px;
-  display:flex; flex-direction:column; gap:20px; overflow-y:auto;
-">
-  <div style="display:flex; justify-content:space-between; align-items:center;">
-    <span style="font-weight:600; font-size:13px;">Settings</span>
-    <button onclick="togglePanel()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;">&#x2715;</button>
-  </div>
 
-  <div>
-    <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Appearance</div>
-    <div style="display:flex; align-items:center; justify-content:space-between;">
-      <span style="font-size:12px;">Theme</span>
-      <button id="theme-toggle" onclick="toggleTheme()" style="
-        background:transparent; border:1px solid var(--border); border-radius:6px;
-        color:var(--muted); font-family:var(--font); font-size:11px;
-        padding:4px 10px; cursor:pointer; letter-spacing:0.5px;
-        transition:border-color 0.15s, color 0.15s;
-      ">LIGHT</button>
-    </div>
-  </div>
-
-  <div>
-    <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:10px;">Libraries</div>
-    <p style="font-size:11px; color:var(--muted); margin-bottom:12px; line-height:1.6;">
-      Upload and manage .mgf spectral library files used for all library search steps.
-    </p>
-    <a href="/settings" class="btn btn-ghost" style="display:block; text-align:center; font-size:12px;">
-      Manage Libraries →
-    </a>
-  </div>
-
-  <div id="panel-storage" style="font-size:11px; color:var(--muted); margin-top:auto; padding-top:16px; border-top:1px solid var(--border);">
-    Loading storage info…
-  </div>
-</div>
-<div id="panel-overlay" onclick="togglePanel()" style="
-  display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:199;
-"></div>
 <main>
 {% block content %}{% endblock %}
 </main>
@@ -491,35 +458,7 @@ function toggleTheme() {
   if (typeof window._onThemeChange === 'function') window._onThemeChange(next);
 }
 
-let _panelOpen = false;
-function togglePanel() {
-  _panelOpen = !_panelOpen;
-  const panel   = document.getElementById('settings-panel');
-  const overlay = document.getElementById('panel-overlay');
-  panel.style.right   = _panelOpen ? '0px' : '-300px';
-  overlay.style.display = _panelOpen ? 'block' : 'none';
-  if (_panelOpen) _loadPanelStorage();
-}
 
-function _fmtBytes(b) {
-  if (b >= 1e12) return (b/1e12).toFixed(1) + ' TB';
-  if (b >= 1e9)  return (b/1e9).toFixed(1)  + ' GB';
-  if (b >= 1e6)  return (b/1e6).toFixed(1)  + ' MB';
-  return              (b/1e3).toFixed(1)  + ' KB';
-}
-
-function _loadPanelStorage() {
-  fetch('/api/storage')
-    .then(r => r.json())
-    .then(d => {
-      const el = document.getElementById('panel-storage');
-      if (!el) return;
-      el.innerHTML = `
-        <div style="margin-bottom:6px;"><span class="muted">Jobs: </span>${d.job_count} &nbsp;·&nbsp; ${_fmtBytes(d.total_bytes)}</div>
-        <div style="word-break:break-all; font-family:monospace; font-size:10px; color:var(--muted);">${d.jobs_dir}</div>`;
-    })
-    .catch(() => {});
-}
 </script>
 </body>
 </html>

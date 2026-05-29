@@ -5,147 +5,324 @@
 <h1>Settings</h1>
 <p class="subtitle">Manage spectral libraries, view storage, and inspect workflow performance.</p>
 
-<!-- Storage info -->
-<div class="card" style="margin-bottom:16px;">
-  <h2>Storage</h2>
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; font-size:12px;">
-    <div>
-      <div class="muted" style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Jobs directory</div>
-      <code style="font-size:11px; word-break:break-all;">{{ storage.jobs_dir }}</code>
-    </div>
-    <div>
-      <div class="muted" style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Libraries directory</div>
-      <code style="font-size:11px; word-break:break-all;">{{ storage.libraries_dir }}</code>
-    </div>
-    <div>
-      <div class="muted" style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Total jobs</div>
-      <span style="font-size:13px; font-weight:600;">{{ storage.job_count }}</span>
-    </div>
-    <div>
-      <div class="muted" style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; margin-bottom:4px;">Disk used (jobs)</div>
-      <span id="disk-used" style="font-size:13px; font-weight:600;">{{ storage.total_mb }} MB</span>
-    </div>
-  </div>
+<!-- Sub-page tabs -->
+<div style="display:flex; gap:0; margin-bottom:24px; border-bottom:1px solid var(--border);">
+  <button class="settings-tab active" onclick="switchTab('storage')" id="tab-storage">Storage</button>
+  <button class="settings-tab" onclick="switchTab('libraries')" id="tab-libraries">Libraries</button>
+  <button class="settings-tab" onclick="switchTab('performance')" id="tab-performance">Performance</button>
+  <button class="settings-tab" onclick="switchTab('about')" id="tab-about">About</button>
 </div>
 
-<!-- Aggregate timing dashboard -->
-<div class="card" style="margin-bottom:16px;">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
-    <h2 style="margin:0;">Workflow Performance</h2>
-    <div style="display:flex; align-items:center; gap:10px;">
-      <select id="agg-workflow-filter" onchange="loadAggregate()"
-              style="background:var(--bg); border:1px solid var(--border); border-radius:6px;
-                     color:var(--text); font-family:var(--font); font-size:12px; padding:5px 10px;">
-        <option value="all">All Workflows</option>
-        <option value="fbmn">Feature Based MN</option>
-        <option value="molecular_networking">Molecular Networking</option>
-        <option value="mshub_gc">GC-MS Deconvolution</option>
-        <option value="mcn">Molecular Community Networking</option>
-      </select>
-      <span class="muted" style="font-size:11px;" id="agg-job-count"></span>
-    </div>
-  </div>
+<style>
+  .settings-tab {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); font-family: var(--font); font-size: 12px;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 8px 18px 10px; cursor: pointer; margin-bottom: -1px;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .settings-tab:hover { color: var(--text); }
+  .settings-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .settings-pane { display: none; }
+  .settings-pane.active { display: block; }
 
-  <div id="agg-summary" style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px;"></div>
+  /* Checkbox styling for lib rows */
+  .lib-checkbox {
+    width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent);
+    flex-shrink: 0;
+  }
+  #libs-selection-bar {
+    display: none;
+    align-items: center; gap: 12px;
+    padding: 8px 12px; margin-bottom: 10px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 6px; font-size: 12px;
+  }
+  #libs-selection-bar.visible { display: flex; }
+</style>
 
-  <!-- Stacked bar showing avg time proportion per track -->
-  <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:8px;">
-    Average time distribution
-  </div>
-  <div id="agg-bar" style="
-    display:flex; height:24px; border-radius:6px; overflow:hidden;
-    background:var(--surface2); margin-bottom:12px;
-  "></div>
-
-  <!-- Per-step avg duration bars -->
-  <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:10px;">
-    Average duration per step
-  </div>
-  <div id="agg-steps" style="display:flex; flex-direction:column; gap:6px;"></div>
-
-  <!-- Legend -->
-  <div id="agg-legend" style="display:flex; flex-wrap:wrap; gap:8px 16px; font-size:11px; margin-top:14px;"></div>
-</div>
-
-<!-- Library management -->
-<div class="card">
-  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
-    <h2 style="margin:0;">Spectral Libraries</h2>
-    <span class="muted" style="font-size:11px;" id="lib-count">{{ libraries | length }} file(s)</span>
-  </div>
-
-  <!-- Upload zone -->
-  <div class="file-drop" id="lib-drop-zone" style="margin-bottom:16px;">
-    <input type="file" id="lib-file-input" multiple accept=".mgf">
-    <div class="file-placeholder">
-      Drop .mgf library files here or click to browse<br>
-      <span style="font-size:10px; color:var(--muted);">Accepts multiple files · Existing files with the same name will be overwritten</span>
-    </div>
-    <div class="file-list" id="lib-file-list"></div>
-  </div>
-
-  <div style="display:flex; gap:10px; align-items:center; margin-bottom:20px;">
-    <button class="btn btn-primary" id="upload-btn" onclick="uploadLibraries()" disabled>Upload</button>
-    <span id="upload-status" style="font-size:12px; color:var(--muted);"></span>
-  </div>
-
-  <!-- Library search -->
-  <div style="margin-bottom:12px;">
-    <input type="text" id="lib-search" placeholder="Search libraries by name…"
-           oninput="filterLibraries()"
-           style="width:100%; background:var(--bg); border:1px solid var(--border);
-                  border-radius:6px; color:var(--text); font-family:var(--font);
-                  font-size:12px; padding:7px 12px;">
-  </div>
-
-  <!-- Installed libraries table -->
-  <div id="libs-table-wrap">
-    {% if libraries %}
-    <table id="libs-table">
+<!-- ═══════════════════════════════════════════════════════ STORAGE TAB -->
+<div class="settings-pane active" id="pane-storage">
+  <div class="card" style="margin-bottom:16px;">
+    <h2>Storage Overview</h2>
+    <table style="font-size:12px;">
       <thead>
         <tr>
-          <th>Filename</th>
-          <th style="width:90px; text-align:right;">Size</th>
-          <th style="width:70px;"></th>
+          <th style="width:30%;">Directory</th>
+          <th style="width:20%; text-align:right;">Count</th>
+          <th style="width:25%; text-align:right;">Size Used</th>
         </tr>
       </thead>
-      <tbody id="libs-tbody">
-        {% for lib in libraries %}
-        <tr id="lib-row-{{ lib.name | replace('.', '-') | replace(' ', '_') }}">
-          <td class="mono" style="font-size:11px;">{{ lib.name }}</td>
-          <td class="muted" style="text-align:right; font-size:11px;">
-            {%- set b = lib.size_bytes -%}
-            {%- if b >= 1e12 %}{{ (b/1e12)|round(1) }} TB
-            {%- elif b >= 1e9 %}{{ (b/1e9)|round(1) }} GB
-            {%- elif b >= 1e6 %}{{ (b/1e6)|round(1) }} MB
-            {%- else %}{{ (b/1e3)|round(1) }} KB{% endif -%}
-          </td>
-          <td style="text-align:right;">
-            <button class="btn btn-ghost"
-                    style="padding:3px 9px; font-size:11px; color:var(--danger); border-color:var(--danger);"
-                    onclick="deleteLibrary('{{ lib.name }}')">Delete</button>
-          </td>
+      <tbody>
+        <tr>
+          <td style="color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Jobs</td>
+          <td style="text-align:right; font-weight:600;" id="storage-job-count">{{ storage.job_count }} jobs</td>
+          <td style="text-align:right; font-weight:600;" id="storage-jobs-size">{{ storage.total_mb }} MB</td>
         </tr>
-        {% endfor %}
+        <tr>
+          <td style="color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:0.6px;">Libraries</td>
+          <td style="text-align:right; font-weight:600;" id="storage-lib-count">{{ libraries | length }} libraries</td>
+          <td style="text-align:right; font-weight:600;" id="storage-libs-size">—</td>
+        </tr>
       </tbody>
     </table>
-    {% else %}
-    <div id="libs-empty" style="text-align:center; padding:32px; color:var(--muted); font-size:12px;">
-      No libraries installed. Upload .mgf files above.
+    <div style="border-top:1px solid var(--border); margin-top:12px; padding-top:12px; display:flex; justify-content:flex-end; align-items:center; gap:16px;">
+      <span style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted);">Total GNPS Local size</span>
+      <span id="storage-total-size" style="font-size:15px; font-weight:700;">—</span>
     </div>
-    {% endif %}
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ LIBRARIES TAB -->
+<div class="settings-pane" id="pane-libraries">
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+      <h2 style="margin:0;">Spectral Libraries</h2>
+      <span class="muted" style="font-size:11px;" id="lib-count">{{ libraries | length }} file(s)</span>
+    </div>
+
+    <!-- Upload zone -->
+    <div class="file-drop" id="lib-drop-zone" style="margin-bottom:12px;">
+      <input type="file" id="lib-file-input" multiple accept=".mgf">
+      <div class="file-placeholder">
+        Drop .mgf library files here or click to browse<br>
+        <span style="font-size:10px; color:var(--muted);">Accepts multiple files · Existing files with the same name will be overwritten</span>
+      </div>
+      <div class="file-list" id="lib-file-list"></div>
+    </div>
+
+    <!-- Upload controls + progress -->
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+      <button class="btn btn-primary" id="upload-btn" onclick="uploadLibraries()" disabled>Upload</button>
+      <span id="upload-status" style="font-size:12px; color:var(--muted);"></span>
+    </div>
+    <div id="upload-progress-wrap" style="display:none; margin-bottom:16px;">
+      <div style="display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:5px;">
+        <span id="upload-progress-label">Uploading…</span>
+        <span id="upload-progress-pct">0%</span>
+      </div>
+      <div style="background:var(--surface2); border-radius:4px; height:6px; overflow:hidden;">
+        <div id="upload-progress-bar" style="height:100%; width:0%; background:var(--accent); border-radius:4px; transition:width 0.3s ease;"></div>
+      </div>
+    </div>
+
+    <!-- Search + sort + bulk actions -->
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+      <input type="text" id="lib-search" placeholder="Search libraries by name…"
+             oninput="filterLibraries()"
+             style="flex:1; min-width:160px; background:var(--bg); border:1px solid var(--border);
+                    border-radius:6px; color:var(--text); font-family:var(--font);
+                    font-size:12px; padding:7px 12px;">
+      <select id="lib-sort" onchange="sortLibraries()"
+              style="background:var(--bg); border:1px solid var(--border); border-radius:6px;
+                     color:var(--text); font-family:var(--font); font-size:12px; padding:7px 10px;">
+        <option value="name-asc">Name A→Z</option>
+        <option value="name-desc">Name Z→A</option>
+        <option value="size-desc">Size (largest)</option>
+        <option value="size-asc">Size (smallest)</option>
+      </select>
+      <button class="btn btn-ghost" id="delete-all-btn"
+              style="color:var(--danger); border-color:var(--danger); font-size:11px; padding:6px 12px;"
+              onclick="deleteAllLibraries()"
+              {% if not libraries %}disabled{% endif %}>
+        Delete All
+      </button>
+    </div>
+
+    <!-- Selection action bar (shown when ≥1 checkbox ticked) -->
+    <div id="libs-selection-bar">
+      <span id="libs-sel-count" style="color:var(--muted);">0 selected</span>
+      <button class="btn btn-ghost" style="font-size:11px; padding:4px 10px; color:var(--danger); border-color:var(--danger);"
+              onclick="deleteSelectedLibraries()">Delete Selected</button>
+      <button class="btn btn-ghost" style="font-size:11px; padding:4px 10px;"
+              onclick="clearLibrarySelection()">Clear Selection</button>
+    </div>
+
+    <!-- Libraries table -->
+    <div id="libs-table-wrap">
+      {% if libraries %}
+      <table id="libs-table">
+        <thead>
+          <tr>
+            <th style="width:28px; padding-right:4px;">
+              <input type="checkbox" class="lib-checkbox" id="lib-select-all" onchange="toggleSelectAll(this)">
+            </th>
+            <th>Filename</th>
+            <th style="width:90px; text-align:right;">Size</th>
+            <th style="width:70px;"></th>
+          </tr>
+        </thead>
+        <tbody id="libs-tbody">
+          {% for lib in libraries %}
+          <tr data-name="{{ lib.name }}" data-size="{{ lib.size_bytes }}">
+            <td style="padding-right:4px;">
+              <input type="checkbox" class="lib-checkbox lib-row-check" onchange="onLibCheckChange()">
+            </td>
+            <td class="mono" style="font-size:11px;">{{ lib.name }}</td>
+            <td class="muted" style="text-align:right; font-size:11px;" data-bytes="{{ lib.size_bytes }}">
+              {%- set b = lib.size_bytes -%}
+              {%- if b >= 1e12 %}{{ (b/1e12)|round(1) }} TB
+              {%- elif b >= 1e9 %}{{ (b/1e9)|round(1) }} GB
+              {%- elif b >= 1e6 %}{{ (b/1e6)|round(1) }} MB
+              {%- else %}{{ (b/1e3)|round(1) }} KB{% endif -%}
+            </td>
+            <td style="text-align:right;">
+              <button class="btn btn-ghost"
+                      style="padding:3px 9px; font-size:11px; color:var(--danger); border-color:var(--danger);"
+                      onclick="deleteLibrary('{{ lib.name }}')">Delete</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div id="libs-empty" style="text-align:center; padding:32px; color:var(--muted); font-size:12px;">
+        No libraries installed. Upload .mgf files above.
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ PERFORMANCE TAB -->
+<div class="settings-pane" id="pane-performance">
+  <div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:10px;">
+      <h2 style="margin:0;">Workflow Performance</h2>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <select id="agg-workflow-filter" onchange="loadAggregate()"
+                style="background:var(--bg); border:1px solid var(--border); border-radius:6px;
+                       color:var(--text); font-family:var(--font); font-size:12px; padding:5px 10px;">
+          <option value="all">All Workflows</option>
+          <option value="fbmn">Feature Based MN</option>
+          <option value="molecular_networking">Molecular Networking</option>
+          <option value="mshub_gc">GC-MS Deconvolution</option>
+          <option value="mcn">Molecular Community Networking</option>
+        </select>
+        <span class="muted" style="font-size:11px;" id="agg-job-count"></span>
+      </div>
+    </div>
+
+    <div id="agg-summary" style="display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px;"></div>
+
+    <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:8px;">
+      Average time distribution
+    </div>
+    <div id="agg-bar" style="
+      display:flex; height:28px; border-radius:6px; overflow:hidden;
+      background:var(--surface2); margin-bottom:12px; position:relative;
+    "></div>
+
+    <div id="agg-tooltip" style="
+      display:none; position:fixed; z-index:300;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:6px; padding:8px 12px; font-size:11px;
+      pointer-events:none; box-shadow:0 4px 16px rgba(0,0,0,0.3);
+      max-width:220px;
+    "></div>
+
+    <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:10px;">
+      Average duration per step
+    </div>
+    <div id="agg-steps" style="display:flex; flex-direction:column; gap:6px;"></div>
+
+    <div id="agg-legend" style="display:flex; flex-wrap:wrap; gap:8px 16px; font-size:11px; margin-top:14px;"></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════ ABOUT TAB -->
+<div class="settings-pane" id="pane-about">
+  <div class="card">
+    <h2>About GNPS Local</h2>
+    <p style="font-size:12px; color:var(--muted); line-height:1.9; margin-bottom:24px;">
+      GNPS Local is an offline, single-user metabolomics analysis platform that runs the core
+      GNPS (Global Natural Products Social Molecular Networking) workflows entirely on your own
+      machine — no internet connection required after installation.
+    </p>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; margin-bottom:24px;">
+      <div style="background:var(--surface2); border-radius:6px; padding:16px 18px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:8px;">Supported Workflows</div>
+        <div style="font-size:12px; line-height:2.1;">
+          Feature-Based MN (FBMN)<br>
+          Molecular Community Networking
+        </div>
+      </div>
+      <div style="background:var(--surface2); border-radius:6px; padding:16px 18px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:8px;">Tech Stack</div>
+        <div style="font-size:12px; line-height:2.1;">
+          Python 3.10 · FastAPI · Uvicorn<br>
+          Jinja2 · Vanilla JS<br>
+          networkx · psutil<br>
+          Docker / conda
+        </div>
+      </div>
+      <div style="background:var(--surface2); border-radius:6px; padding:16px 18px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:8px;">Input Formats</div>
+        <div style="font-size:12px; line-height:2.1;">
+          MGF · mzML · mzXML<br>
+          MZmine · XCMS · MS-DIAL<br>
+          OpenMS · Progenesis<br>
+          CDF (GC-MS)
+        </div>
+      </div>
+    </div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:24px;">
+      <div style="background:var(--surface2); border-radius:6px; padding:16px 18px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:8px;">Key Features</div>
+        <div style="font-size:12px; line-height:2.1;">
+          Fully offline — no cloud dependency<br>
+          Live log streaming &amp; step timing<br>
+          Local spectral library annotation<br>
+          Job persistence across restarts<br>
+          Parallel multi-job execution
+        </div>
+      </div>
+      <div style="background:var(--surface2); border-radius:6px; padding:16px 18px;">
+        <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:8px;">Output</div>
+        <div style="font-size:12px; line-height:2.1;">
+          GraphML (Cytoscape-compatible)<br>
+          Library annotations TSV<br>
+          Cluster info summary<br>
+          Quantification tables<br>
+          Filtered edge lists
+        </div>
+      </div>
+    </div>
+
+    <div style="border-top:1px solid var(--border); padding-top:20px; margin-bottom:20px;">
+      <div style="font-size:10px; text-transform:uppercase; letter-spacing:0.8px; color:var(--muted); margin-bottom:12px;">Resources</div>
+      <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:10px; font-size:12px;">
+        <a href="https://some-earth-2514.github.io/GNPS_Local_Documentation/" target="_blank" rel="noopener"
+           style="display:block; background:var(--surface2); border-radius:6px; padding:14px 16px;
+                  color:var(--accent); text-decoration:none; transition:background 0.15s;">
+          <div style="font-weight:600; margin-bottom:4px;">GNPS Local Documentation ↗</div>
+          <div style="font-size:11px; color:var(--muted);">Workflow guides &amp; tutorials</div>
+        </a>
+      </div>
+    </div>
   </div>
 </div>
 
 {% endblock %}
 {% block scripts %}
 <script>
-const fileInput = document.getElementById('lib-file-input');
-const uploadBtn = document.getElementById('upload-btn');
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-pane').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  document.getElementById('pane-' + name).classList.add('active');
+  if (name === 'performance' && !_lastAggData) loadAggregate();
+  if (name === 'storage') refreshStorageDisplay();
+}
+
+// ── Library upload (per-file progress) ───────────────────────────────────────
+const fileInput    = document.getElementById('lib-file-input');
+const uploadBtn    = document.getElementById('upload-btn');
 const uploadStatus = document.getElementById('upload-status');
 
-// Enable upload button when files are selected.
-// Drop/click handling is done by the global _initDropZone in base.html.
 fileInput.addEventListener('change', () => {
   uploadBtn.disabled = fileInput.files.length === 0;
 });
@@ -158,78 +335,227 @@ async function uploadLibraries() {
   uploadBtn.textContent = 'Uploading…';
   uploadStatus.textContent = '';
 
-  const data = new FormData();
-  files.forEach(f => data.append('files', f));
+  const progressWrap = document.getElementById('upload-progress-wrap');
+  const progressBar  = document.getElementById('upload-progress-bar');
+  const progressLbl  = document.getElementById('upload-progress-label');
+  const progressPct  = document.getElementById('upload-progress-pct');
 
-  try {
-    const r = await fetch('/api/libraries/upload', { method: 'POST', body: data });
-    const d = await r.json();
-    if (r.ok) {
-      uploadStatus.textContent = `Saved: ${d.saved.join(', ')}`;
-      uploadBtn.textContent = 'Upload';
-      fileList.innerHTML = '';
-      fileInput.value = '';
-      await refreshLibraries();
-    } else {
-      uploadStatus.textContent = d.detail || 'Upload failed';
-      uploadBtn.disabled = false;
-      uploadBtn.textContent = 'Upload';
-    }
-  } catch(e) {
-    uploadStatus.textContent = 'Network error: ' + e.message;
-    uploadBtn.disabled = false;
-    uploadBtn.textContent = 'Upload';
+  progressWrap.style.display = 'block';
+  progressBar.style.width = '0%';
+  progressPct.textContent = '0%';
+
+  const saved = [], errors = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    progressLbl.textContent = `Uploading ${f.name} (${i + 1} of ${files.length})…`;
+    progressBar.style.width = Math.round((i / files.length) * 100) + '%';
+    progressPct.textContent = Math.round((i / files.length) * 100) + '%';
+
+    const data = new FormData();
+    data.append('files', f);
+    try {
+      const r = await fetch('/api/libraries/upload', { method: 'POST', body: data });
+      const d = await r.json();
+      if (r.ok && d.saved) saved.push(...d.saved);
+      else errors.push(f.name);
+    } catch(e) { errors.push(f.name); }
+  }
+
+  progressBar.style.width = '100%';
+  progressPct.textContent = '100%';
+  await new Promise(res => setTimeout(res, 400));
+  progressWrap.style.display = 'none';
+
+  if (errors.length) {
+    uploadStatus.style.color = 'var(--danger)';
+    uploadStatus.textContent = `Failed: ${errors.join(', ')}` + (saved.length ? ` · Saved: ${saved.join(', ')}` : '');
+  } else {
+    uploadStatus.style.color = 'var(--success)';
+    uploadStatus.textContent = `✓ Saved ${saved.length} file${saved.length !== 1 ? 's' : ''}`;
+  }
+
+  uploadBtn.textContent = 'Upload';
+  uploadBtn.disabled = true;
+  document.getElementById('lib-file-list').innerHTML = '';
+  fileInput.value = '';
+  await refreshLibraries();
+}
+
+// ── Checkbox selection helpers ────────────────────────────────────────────────
+function onLibCheckChange() {
+  const all  = document.querySelectorAll('.lib-row-check');
+  const checked = document.querySelectorAll('.lib-row-check:checked');
+  const bar  = document.getElementById('libs-selection-bar');
+  const cnt  = document.getElementById('libs-sel-count');
+  const selectAllCb = document.getElementById('lib-select-all');
+
+  if (cnt) cnt.textContent = `${checked.length} selected`;
+  bar.classList.toggle('visible', checked.length > 0);
+  if (selectAllCb) {
+    selectAllCb.indeterminate = checked.length > 0 && checked.length < all.length;
+    selectAllCb.checked = all.length > 0 && checked.length === all.length;
   }
 }
 
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.lib-row-check').forEach(c => { c.checked = cb.checked; });
+  onLibCheckChange();
+}
+
+function clearLibrarySelection() {
+  document.querySelectorAll('.lib-row-check').forEach(c => { c.checked = false; });
+  const selectAllCb = document.getElementById('lib-select-all');
+  if (selectAllCb) { selectAllCb.checked = false; selectAllCb.indeterminate = false; }
+  onLibCheckChange();
+}
+
+async function deleteSelectedLibraries() {
+  const checked = Array.from(document.querySelectorAll('.lib-row-check:checked'));
+  if (!checked.length) return;
+  const names = checked.map(cb => cb.closest('tr').dataset.name).filter(Boolean);
+  const plural = names.length === 1 ? 'that library' : `${names.length} libraries`;
+  if (!confirm(`Are you sure? This will delete ${plural} causing library search to fail.`)) return;
+  for (const name of names) {
+    try { await fetch(`/api/libraries/${encodeURIComponent(name)}`, { method: 'DELETE' }); } catch(e) {}
+  }
+  await refreshLibraries();
+}
+
+// ── Single + all delete ───────────────────────────────────────────────────────
 async function deleteLibrary(filename) {
-  if (!confirm(`Delete ${filename}? This cannot be undone.`)) return;
+  if (!confirm(`Are you sure? This will delete that library causing library search to fail.`)) return;
   try {
     const r = await fetch(`/api/libraries/${encodeURIComponent(filename)}`, { method: 'DELETE' });
-    if (r.ok) {
-      await refreshLibraries();
-    } else {
-      alert('Delete failed.');
-    }
-  } catch(e) {
-    alert('Network error: ' + e.message);
+    if (r.ok) await refreshLibraries();
+    else alert('Delete failed.');
+  } catch(e) { alert('Network error: ' + e.message); }
+}
+
+async function deleteAllLibraries() {
+  const rows = document.querySelectorAll('#libs-tbody tr');
+  if (!rows.length) return;
+  if (!confirm(`Are you sure? This will delete all libraries causing library search to fail.`)) return;
+  const names = Array.from(rows).map(r => r.dataset.name).filter(Boolean);
+  for (const name of names) {
+    try { await fetch(`/api/libraries/${encodeURIComponent(name)}`, { method: 'DELETE' }); } catch(e) {}
   }
+  await refreshLibraries();
 }
 
-function formatBytes(bytes) {
-  if (bytes >= 1e12) return (bytes / 1e12).toFixed(1) + ' TB';
-  if (bytes >= 1e9)  return (bytes / 1e9).toFixed(1) + ' GB';
-  if (bytes >= 1e6)  return (bytes / 1e6).toFixed(1) + ' MB';
-  return (bytes / 1e3).toFixed(1) + ' KB';
+// ── Sort + filter ─────────────────────────────────────────────────────────────
+function sortLibraries() {
+  const mode = document.getElementById('lib-sort').value;
+  const tbody = document.getElementById('libs-tbody');
+  if (!tbody) return;
+  const rows = Array.from(tbody.querySelectorAll('tr'));
+  rows.sort((a, b) => {
+    const nameA = a.dataset.name || '', nameB = b.dataset.name || '';
+    const sizeA = parseInt(a.dataset.size || '0'), sizeB = parseInt(b.dataset.size || '0');
+    if (mode === 'name-asc')  return nameA.localeCompare(nameB);
+    if (mode === 'name-desc') return nameB.localeCompare(nameA);
+    if (mode === 'size-desc') return sizeB - sizeA;
+    if (mode === 'size-asc')  return sizeA - sizeB;
+    return 0;
+  });
+  rows.forEach(r => tbody.appendChild(r));
 }
-
-// Refresh disk-used display from live API
-async function refreshStorageDisplay() {
-  try {
-    const r = await fetch('/api/storage');
-    const d = await r.json();
-    const el = document.getElementById('disk-used');
-    if (el) el.textContent = formatBytes(d.total_bytes);
-  } catch(e) {}
-}
-refreshStorageDisplay();
 
 function filterLibraries() {
   const q = document.getElementById('lib-search').value.toLowerCase();
   document.querySelectorAll('#libs-table-wrap table tbody tr').forEach(row => {
-    const name = row.cells[0] ? row.cells[0].textContent.toLowerCase() : '';
+    const name = row.cells[1] ? row.cells[1].textContent.toLowerCase() : '';
     row.style.display = name.includes(q) ? '' : 'none';
   });
 }
 
-// ── Aggregate timing dashboard ───────────────────────────────────────────────
+function formatBytes(bytes) {
+  if (bytes >= 1e12) return (bytes / 1e12).toFixed(1) + ' TB';
+  if (bytes >= 1e9)  return (bytes / 1e9).toFixed(1)  + ' GB';
+  if (bytes >= 1e6)  return (bytes / 1e6).toFixed(1)  + ' MB';
+  return (bytes / 1e3).toFixed(1) + ' KB';
+}
+
+// ── Storage display ───────────────────────────────────────────────────────────
+async function refreshStorageDisplay() {
+  try {
+    const [rs, rl] = await Promise.all([fetch('/api/storage'), fetch('/api/libraries')]);
+    const [d, libs] = await Promise.all([rs.json(), rl.json()]);
+    const libBytes   = libs.reduce((s, l) => s + (l.size_bytes || 0), 0);
+    const totalBytes = (d.total_bytes || 0) + libBytes;
+    const jc = document.getElementById('storage-job-count');
+    const js = document.getElementById('storage-jobs-size');
+    const lc = document.getElementById('storage-lib-count');
+    const ls = document.getElementById('storage-libs-size');
+    const ts = document.getElementById('storage-total-size');
+    if (jc) jc.textContent = `${d.job_count} ${d.job_count === 1 ? 'job' : 'jobs'}`;
+    if (js) js.textContent = formatBytes(d.total_bytes || 0);
+    if (lc) lc.textContent = `${libs.length} ${libs.length === 1 ? 'library' : 'libraries'}`;
+    if (ls) ls.textContent = formatBytes(libBytes);
+    if (ts) ts.textContent = formatBytes(totalBytes);
+  } catch(e) {}
+}
+refreshStorageDisplay();
+
+// ── Library refresh ───────────────────────────────────────────────────────────
+async function refreshLibraries() {
+  const r = await fetch('/api/libraries');
+  const libs = await r.json();
+  const wrap      = document.getElementById('libs-table-wrap');
+  const countEl   = document.getElementById('lib-count');
+  const delAllBtn = document.getElementById('delete-all-btn');
+  if (countEl)   countEl.textContent = `${libs.length} file(s)`;
+  if (delAllBtn) delAllBtn.disabled  = libs.length === 0;
+
+  // Reset selection bar
+  document.getElementById('libs-selection-bar').classList.remove('visible');
+
+  if (!libs.length) {
+    wrap.innerHTML = `<div id="libs-empty" style="text-align:center;padding:32px;color:var(--muted);font-size:12px;">
+      No libraries installed. Upload .mgf files above.</div>`;
+    refreshStorageDisplay();
+    return;
+  }
+
+  let html = `<table id="libs-table"><thead><tr>
+    <th style="width:28px;padding-right:4px;">
+      <input type="checkbox" class="lib-checkbox" id="lib-select-all" onchange="toggleSelectAll(this)">
+    </th>
+    <th>Filename</th>
+    <th style="width:90px;text-align:right;">Size</th>
+    <th style="width:70px;"></th>
+  </tr></thead><tbody id="libs-tbody">`;
+
+  libs.forEach(lib => {
+    html += `<tr data-name="${lib.name}" data-size="${lib.size_bytes}">
+      <td style="padding-right:4px;">
+        <input type="checkbox" class="lib-checkbox lib-row-check" onchange="onLibCheckChange()">
+      </td>
+      <td class="mono" style="font-size:11px;">${lib.name}</td>
+      <td class="muted" style="text-align:right;font-size:11px;" data-bytes="${lib.size_bytes}">${formatBytes(lib.size_bytes)}</td>
+      <td style="text-align:right;">
+        <button class="btn btn-ghost"
+                style="padding:3px 9px;font-size:11px;color:var(--danger);border-color:var(--danger);"
+                onclick="deleteLibrary('${lib.name}')">Delete</button>
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+  filterLibraries();
+  sortLibraries();
+  refreshStorageDisplay();
+}
+
+// ── Aggregate timing dashboard ────────────────────────────────────────────────
 const AGG_TRACKS = [
-  { match: /metadata_merge|input_validation/i,                                                  cssVar: '--t-metadata',    label: 'Metadata'         },
-  { match: /reformat_quant|filter_spectra/i,                                                    cssVar: '--t-spectra',     label: 'Spectra'          },
-  { match: /prep_networking_params|networking_pairs|merge_pairs|filter_edges/i,                 cssVar: '--t-networking',  label: 'Networking'       },
-  { match: /library_search_prep|library_search|merge_libsearch|libsearch_db_annot/i,            cssVar: '--t-library',     label: 'Library'          },
-  { match: /clusterinfosummary_for_featurenetworks|network_edges_display|enrich_clusterinfo/i,  cssVar: '--t-cluster',     label: 'Cluster & Edges'  },
-  { match: /graphml|convert_graph|mcn/i,                                                        cssVar: '--t-graphml',     label: 'GraphML / MCN'    },
+  { match: /metadata_merge|input_validation/i,                                                  cssVar: '--t-metadata',    label: 'Metadata'        },
+  { match: /reformat_quant|filter_spectra/i,                                                    cssVar: '--t-spectra',     label: 'Spectra'         },
+  { match: /prep_networking_params|networking_pairs|merge_pairs|filter_edges/i,                 cssVar: '--t-networking',  label: 'Networking'      },
+  { match: /library_search_prep|library_search|merge_libsearch|libsearch_db_annot/i,            cssVar: '--t-library',     label: 'Library'         },
+  { match: /clusterinfosummary_for_featurenetworks|network_edges_display|enrich_clusterinfo/i,  cssVar: '--t-cluster',     label: 'Cluster & Edges' },
+  { match: /graphml|convert_graph|mcn/i,                                                        cssVar: '--t-graphml',     label: 'GraphML / MCN'   },
 ];
 
 function aggTrack(stepName) {
@@ -262,9 +588,8 @@ let _lastAggData = null;
 
 function renderAggregate(data) {
   const countEl = document.getElementById('agg-job-count');
-  if (countEl) countEl.textContent = `${data.job_count} job(s)`;
+  if (countEl) countEl.textContent = `${data.job_count} ${data.job_count === 1 ? 'job' : 'jobs'}`;
 
-  // Summary cards
   const summaryEl = document.getElementById('agg-summary');
   if (summaryEl) {
     const mostExpensive = data.steps.length ? data.steps[0].step : '—';
@@ -282,36 +607,59 @@ function renderAggregate(data) {
   }
 
   if (!data.steps.length) {
-    document.getElementById('agg-bar').innerHTML   = '<div style="width:100%;background:var(--surface2);border-radius:6px;"></div>';
+    document.getElementById('agg-bar').innerHTML   = '';
     document.getElementById('agg-steps').innerHTML = '<div class="muted" style="font-size:12px;padding:12px 0;">No timing data yet. Run a job to see performance metrics.</div>';
     document.getElementById('agg-legend').innerHTML = '';
     return;
   }
 
-  // Stacked bar (proportional avg_s)
   const totalAvg = data.steps.reduce((s, st) => s + st.avg_s, 0);
-  const barEl = document.getElementById('agg-bar');
+  const barEl    = document.getElementById('agg-bar');
+  const tip      = document.getElementById('agg-tooltip');
+  const legend   = document.getElementById('agg-legend');
   barEl.innerHTML = '';
+
   const seenLabels = new Set();
   const legendItems = [];
 
   data.steps.forEach(st => {
-    const track = aggTrack(st.step);
-    const pct   = totalAvg > 0 ? (st.avg_s / totalAvg) * 100 : 0;
-    const color = getCssVarAgg(track.cssVar);
-    const seg   = document.createElement('div');
-    seg.style.cssText = `width:${pct}%; background:${color}; min-width:${pct>0?'3px':'0'};`;
-    seg.title = `${st.step}: ${fmtDurAgg(st.avg_s)} avg`;
+    const track   = aggTrack(st.step);
+    const pct     = totalAvg > 0 ? (st.avg_s / totalAvg) * 100 : 0;
+    const color   = getCssVarAgg(track.cssVar);
+    const failPct = st.count > 0 ? Math.round(st.failure_count / st.count * 100) : 0;
+
+    const seg = document.createElement('div');
+    seg.style.cssText = `width:${pct}%; background:${color}; min-width:${pct>0?'3px':'0'}; cursor:pointer; transition:filter 0.15s;`;
+
+    seg.addEventListener('mouseenter', e => {
+      seg.style.filter = 'brightness(1.25)';
+      tip.style.display = 'block';
+      tip.innerHTML = `
+        <div style="font-weight:600;margin-bottom:4px;word-break:break-all;overflow-wrap:break-word;line-height:1.4;">${st.step}</div>
+        <div style="color:var(--muted);">${track.label}</div>
+        <div style="margin-top:6px;">Avg: ${fmtDurAgg(st.avg_s)}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${st.count} run${st.count !== 1 ? 's' : ''}</div>
+        ${failPct > 0 ? `<div style="color:var(--danger);font-size:10px;margin-top:2px;">${failPct}% failure rate</div>` : ''}
+      `;
+    });
+    seg.addEventListener('mousemove', e => {
+      tip.style.left = (e.clientX + 12) + 'px';
+      tip.style.top  = (e.clientY - 8)  + 'px';
+    });
+    seg.addEventListener('mouseleave', () => {
+      seg.style.filter = '';
+      tip.style.display = 'none';
+    });
     barEl.appendChild(seg);
+
     if (!seenLabels.has(track.label)) {
       seenLabels.add(track.label);
       legendItems.push({ label: track.label, cssVar: track.cssVar });
     }
   });
 
-  // Per-step bars
-  const maxAvg   = data.steps[0].avg_s;
-  const stepsEl  = document.getElementById('agg-steps');
+  const maxAvg  = data.steps[0].avg_s;
+  const stepsEl = document.getElementById('agg-steps');
   stepsEl.innerHTML = data.steps.map(st => {
     const track   = aggTrack(st.step);
     const color   = getCssVarAgg(track.cssVar);
@@ -329,8 +677,7 @@ function renderAggregate(data) {
     `;
   }).join('');
 
-  // Legend
-  document.getElementById('agg-legend').innerHTML = legendItems.map(item => `
+  legend.innerHTML = legendItems.map(item => `
     <span style="display:flex;align-items:center;gap:5px;">
       <span style="width:10px;height:10px;border-radius:2px;background:${getCssVarAgg(item.cssVar)};flex-shrink:0;"></span>
       ${item.label}
@@ -338,45 +685,16 @@ function renderAggregate(data) {
   `).join('');
 }
 
-loadAggregate();
-
 window._onThemeChange = () => { if (_lastAggData) renderAggregate(_lastAggData); };
 
-async function refreshLibraries() {
-  const r = await fetch('/api/libraries');
-  const libs = await r.json();
-  const wrap = document.getElementById('libs-table-wrap');
-  const countEl = document.getElementById('lib-count');
-  countEl.textContent = `${libs.length} file(s)`;
-
-  if (!libs.length) {
-    wrap.innerHTML = `<div id="libs-empty" style="text-align:center;padding:32px;color:var(--muted);font-size:12px;">
-      No libraries installed. Upload .mgf files above.</div>`;
-    return;
-  }
-
-  let html = `<table id="libs-table"><thead><tr>
-    <th>Filename</th>
-    <th style="width:90px;text-align:right;">Size</th>
-    <th style="width:70px;"></th>
-  </tr></thead><tbody>`;
-
-  libs.forEach(lib => {
-    html += `<tr>
-      <td class="mono" style="font-size:11px;">${lib.name}</td>
-      <td class="muted" style="text-align:right;font-size:11px;">${_fmtBytes(lib.size_bytes)}</td>
-      <td style="text-align:right;">
-        <button class="btn btn-ghost"
-                style="padding:3px 9px;font-size:11px;color:var(--danger);border-color:var(--danger);"
-                onclick="deleteLibrary('${lib.name}')">Delete</button>
-      </td>
-    </tr>`;
-  });
-
-  html += '</tbody></table>';
-  wrap.innerHTML = html;
-  filterLibraries(); // re-apply search after refresh
-  refreshStorageDisplay();
+if (document.getElementById('pane-performance').classList.contains('active')) {
+  loadAggregate();
 }
+
+// Check URL hash for tab
+(function() {
+  const hash = window.location.hash.replace('#', '');
+  if (['storage','libraries','performance','about'].includes(hash)) switchTab(hash);
+})();
 </script>
 {% endblock %}

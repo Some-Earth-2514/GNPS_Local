@@ -25,6 +25,7 @@ Skipped (external dependencies / optional):
   - metabolomics_convert_graphml_iin_collapse (IIN variant, optional)
 """
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -78,8 +79,7 @@ def run(job: "Job") -> bool:
         exclude_also=["*.mgf", "*.MGF"],
     )
     metadata_file = _find_input(input_dir, ["*metadata*", "*metadata*.tsv", "*metadata*.txt"])
-    library_dir = input_dir / "library" if (input_dir / "library").is_dir() \
-    else REPO_ROOT / "libraries"
+    library_dir = Path(os.environ.get("GNPS_LIBRARIES_DIR", REPO_ROOT / "libraries"))
     
     if not mgf_file:
         job.log("ERROR: No MGF file found in input directory")
