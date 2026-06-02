@@ -51,10 +51,10 @@
   </div>
 
   <div class="form-section-title">Optional Inputs</div>
-  <div class="form-grid" style="margin-bottom: 20px;">
-    <div style="grid-column: span 2;">
+  <div class="form-grid" style="margin-bottom:20px;">
+    <div style="grid-column:span 2;">
       <label>Job Name</label>
-      <input type="text" name="JOB_NAME" placeholder="Enter a custom name for this job..." style="width: 100%;">
+      <input type="text" name="JOB_NAME" placeholder="Enter a custom name for this job..." style="width:100%;">
     </div>
   </div>
 
@@ -69,45 +69,6 @@
 {% endblock %}
 {% block scripts %}
 <script>
-
-document.addEventListener('change', e => {
-  const input = e.target;
-  if (input.type !== 'file') return;
-
-  const drop = input.closest('.file-drop');
-  if (!drop) return;
- 
-  const placeholder = drop.querySelector('.file-placeholder');
-  const fileList    = drop.querySelector('.file-list');
-  const files       = Array.from(input.files);
- 
-  if (files.length === 0) {
-    placeholder.style.display = 'block';
-    fileList.style.display    = 'none';
-    fileList.innerHTML        = '';
-  } else {
-    placeholder.style.display = 'none';
-    fileList.style.display    = 'block';
-    fileList.innerHTML        = files.map(f => `<div>${f.name}</div>`).join('');
-  }
-});
-
-document.getElementById('submit-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const btn = document.getElementById('submit-btn');
-  const status = document.getElementById('submit-status');
-  btn.disabled = true;
-  btn.textContent = 'Submitting…';
-  const data = new FormData(e.target);
-  try {
-    const r = await fetch('/api/submit/mshub_gc', { method: 'POST', body: data });
-    const d = await r.json();
-    if (r.ok) window.location.href = `/job/${d.job_id}`;
-    else { status.textContent = d.detail || 'Submission failed'; btn.disabled = false; btn.textContent = 'Submit Job'; }
-  } catch(err) {
-    status.textContent = 'Network error: ' + err.message;
-    btn.disabled = false; btn.textContent = 'Submit Job';
-  }
-});
+wireSubmitForm('submit-form', 'submit-btn', 'submit-status', '/api/submit/mshub_gc');
 </script>
 {% endblock %}

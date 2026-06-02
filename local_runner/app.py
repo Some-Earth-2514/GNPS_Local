@@ -22,6 +22,15 @@ app = FastAPI(title="GNPS Local", version="1.0.0")
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+@app.get("/icon.svg")
+async def serve_favicon():
+    return FileResponse(str(BASE_DIR / "templates" / "icon.svg"), media_type="image/svg+xml")
+@app.get("/static/css/styles.css")
+async def serve_css():
+    return FileResponse(str(BASE_DIR / "templates" / "styles.css"), media_type="text/css")
+@app.get("/static/js/functions.js")
+async def serve_js():
+    return FileResponse(str(BASE_DIR / "templates" / "functions.js"), media_type="application/javascript")
 
 # ── Pages ──────────────────────────────────────────────────────────────────────
 

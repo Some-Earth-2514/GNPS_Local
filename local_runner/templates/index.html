@@ -7,13 +7,11 @@
 
 <div class="card">
   <div class="job-section-title">Filter Jobs</div>
-  <div class="form-grid" style="align-items: end;">
+  <div class="form-grid" style="align-items:end;">
     <div>
       <label for="jobSearch">Search Jobs</label>
-      <input type="text" id="jobSearch" placeholder="Search by Name or ID..." 
-             onkeyup="filterJobs()">
+      <input type="text" id="jobSearch" placeholder="Search by Name or ID..." onkeyup="filterJobs()">
     </div>
-    
     <div>
       <label for="workflowFilter">Filter by Workflow</label>
       <select id="workflowFilter" onchange="filterJobs()">
@@ -28,17 +26,17 @@
 </div>
 
 {% if jobs %}
-<div class="card" style="padding:0;">
-  <table id="jobsTable" style="table-layout: fixed; width: 100%;">
+<div class="card jobs-table-card">
+  <table id="jobsTable" style="table-layout:fixed; width:100%;">
     <thead>
       <tr>
-        <th style="width: 24%; padding-left: 16px;">Job Name</th>
-        <th style="width: 15%;">Job ID</th>
-        <th style="width: 15%;">Workflow</th>
-        <th style="width: 10%;">Status</th>
-        <th style="width: 20%;">Created</th>
-        <th style="width: 8%;">Duration</th>
-        <th style="width: 8%;"></th>
+        <th style="width:24%;" class="job-name-cell">Job Name</th>
+        <th style="width:15%;">Job ID</th>
+        <th style="width:15%;">Workflow</th>
+        <th style="width:10%;">Status</th>
+        <th style="width:20%;">Created</th>
+        <th style="width:8%;">Duration</th>
+        <th style="width:8%;"></th>
       </tr>
     </thead>
     <tbody id="job-table-body">
@@ -48,19 +46,13 @@
           data-status="{{ job.status }}"
           data-started="{{ job.started_at or '' }}"
           data-finished="{{ job.finished_at or '' }}">
-        <td style="padding-left: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-          {{ job.params.get('JOB_NAME', '—') or '—' }}
-        </td>
+        <td class="job-name-cell">{{ job.params.get('JOB_NAME', '—') or '—' }}</td>
         <td class="mono">{{ job.id }}</td>
-        <td style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-          {{ job.workflow | replace('_', ' ') | title }}
-        </td>
-        <td>
-          <span class="badge badge-{{ job.status }}">{{ job.status | upper }}</span>
-        </td>
+        <td class="job-wf-cell">{{ job.workflow | replace('_', ' ') | title }}</td>
+        <td><span class="badge badge-{{ job.status }}">{{ job.status | upper }}</span></td>
         <td class="muted ts-cell" data-iso="{{ job.created_at }}">{{ job.created_at[:16] | replace('T', ' ') }}</td>
         <td class="duration-cell muted">—</td>
-        <td style="text-align: right; padding-right: 16px;">
+        <td class="job-row-action">
           <a href="/job/{{ job.id }}" class="btn btn-ghost" style="padding:4px 10px; font-size:11px;">View</a>
         </td>
       </tr>
@@ -69,118 +61,10 @@
   </table>
 </div>
 {% else %}
-<div class="card" style="text-align:center; padding:48px; color:var(--muted);">
-  No jobs yet. <a href="/" style="color:var(--accent);">Submit a workflow</a> to get started.
+<div class="card jobs-empty">
+  No jobs yet. <a href="/">Submit a workflow</a> to get started.
 </div>
 {% endif %}
 
 {% endblock %}
-
-{% block scripts %}
-<script>
-const POLL_INTERVAL = 5000;
-let pollTimer = null;
-let durationTimer = null;
-
-/**
- * Filters the table based on both the search text input (Name/ID)
- * and the top-level Workflow dropdown selection.
- */
-function filterJobs() {
-  const searchText = document.getElementById("jobSearch").value.toLowerCase();
-  const workflowType = document.getElementById("workflowFilter").value;
-  const rows = document.querySelectorAll("#job-table-body tr");
-
-  rows.forEach(row => {
-    const nameText = row.cells[0].textContent.toLowerCase();
-    const idText = row.cells[1].textContent.toLowerCase();
-    const rowWorkflow = row.getAttribute("data-workflow");
-
-    const matchesSearch = nameText.includes(searchText) || idText.includes(searchText);
-    const matchesWorkflow = (workflowType === "all" || rowWorkflow === workflowType);
-
-    row.style.display = (matchesSearch && matchesWorkflow) ? "" : "none";
-  });
-}
-
-function formatDuration(startIso, endIso) {
-  if (!startIso) return '—';
-  const start = new Date(startIso);
-  const end = endIso ? new Date(endIso) : new Date();
-  const totalSec = Math.floor((end - start) / 1000);
-  if (totalSec < 0) return '—';
-  const h = Math.floor(totalSec / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  if (h > 0) return `${h}h ${String(m).padStart(2,'0')}m`;
-  if (m > 0) return `${m}m ${String(s).padStart(2,'0')}s`;
-  return `${s}s`;
-}
-
-function updateDurations() {
-  document.querySelectorAll('tr[data-job-id]').forEach(row => {
-    const started  = row.dataset.started;
-    const finished = row.dataset.finished;
-    const status   = row.dataset.status;
-    const cell     = row.querySelector('.duration-cell');
-    if (!cell || !started) return;
-    
-    if (status === 'running' || status === 'queued') {
-      cell.textContent = formatDuration(started, null);
-    } else if (finished) {
-      cell.textContent = formatDuration(started, finished);
-    }
-  });
-}
-
-function updateJobStatuses() {
-  if (document.hidden) return;
-  fetch('/api/jobs')
-    .then(res => res.json())
-    .then(jobs => {
-      let activeFound = false;
-      jobs.forEach(job => {
-        const row = document.querySelector(`tr[data-job-id="${job.id}"]`);
-        if (!row) return;
-        const isActive = job.status === 'running' || job.status === 'queued';
-        if (isActive) activeFound = true;
-        if (row.dataset.status === job.status) return;
-        
-        row.dataset.status  = job.status;
-        row.dataset.started  = job.started_at  || '';
-        row.dataset.finished = job.finished_at || '';
-        const badge = row.querySelector('.badge');
-        badge.className   = `badge badge-${job.status}`;
-        badge.textContent = job.status.toUpperCase();
-      });
-      if (!activeFound) {
-        clearInterval(pollTimer); pollTimer = null;
-        clearInterval(durationTimer); durationTimer = null;
-      }
-    })
-    .catch(err => console.error('Polling error:', err));
-}
-
-updateDurations();
-
-document.querySelectorAll('.ts-cell[data-iso]').forEach(cell => {
-  const iso = cell.getAttribute('data-iso');
-  if (!iso) return;
-  try {
-    cell.textContent = new Date(iso).toLocaleString(undefined, {
-      year:'numeric', month:'short', day:'numeric',
-      hour:'2-digit', minute:'2-digit'
-    });
-  } catch(e) {}
-});
-
-const hasActive = document.querySelectorAll(
-  'tr[data-status="running"], tr[data-status="queued"]'
-).length > 0;
-
-if (hasActive) {
-  durationTimer = setInterval(updateDurations, 1000);
-  pollTimer     = setInterval(updateJobStatuses, POLL_INTERVAL);
-}
-</script>
-{% endblock %}
+{% block scripts %}{% endblock %}
