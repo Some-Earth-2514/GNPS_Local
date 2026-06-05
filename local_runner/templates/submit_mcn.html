@@ -19,12 +19,14 @@
   </div>
   <div class="hint">
     GraphML must be generated using the following parameters:<br>
-  - Cosine Score between 0 and 0.1<br>
-  - TopK value from 100 to 10,000<br>
-  - Max Component Size of 0</div>
+    - Cosine Score between 0 and 0.1<br>
+    - TopK value from 100 to 10,000<br>
+    - Max Component Size of 0
+  </div>
+
   <div class="form-section-title">Sigmoid Parameters</div>
   <div class="form-grid">
-    <div id="mcn-params", class="form-grid-hidden">
+    <div id="mcn-params" class="form-grid-hidden">
       <div>
         <label>Sigmoid Steepness (K)</label>
         <input type="number" name="MCN_K" value="20" step="1" min="1" max="100">
@@ -39,10 +41,10 @@
   </div>
 
   <div class="form-section-title">Optional Inputs</div>
-  <div class="form-grid" style="margin-bottom: 20px;">
-    <div style="grid-column: span 2;">
+  <div class="form-grid" style="margin-bottom:20px;">
+    <div style="grid-column:span 2;">
       <label>Job Name</label>
-      <input type="text" name="JOB_NAME" placeholder="Enter a custom name for this job..." style="width: 100%;">
+      <input type="text" name="JOB_NAME" placeholder="Enter a custom name for this job..." style="width:100%;">
     </div>
   </div>
 
@@ -51,50 +53,12 @@
     <a href="/" class="btn btn-ghost">Cancel</a>
     <span id="submit-status" style="font-size:12px; color:var(--muted);"></span>
   </div>
+</div>
 </form>
 
 {% endblock %}
 {% block scripts %}
 <script>
-
-document.addEventListener('change', e => {
-  const input = e.target;
-  if (input.type !== 'file') return;
-
-  const drop = input.closest('.file-drop');
-  if (!drop) return;
- 
-  const placeholder = drop.querySelector('.file-placeholder');
-  const fileList    = drop.querySelector('.file-list');
-  const files       = Array.from(input.files);
- 
-  if (files.length === 0) {
-    placeholder.style.display = 'block';
-    fileList.style.display    = 'none';
-    fileList.innerHTML        = '';
-  } else {
-    placeholder.style.display = 'none';
-    fileList.style.display    = 'block';
-    fileList.innerHTML        = files.map(f => `<div>${f.name}</div>`).join('');
-  }
-});
-
-document.getElementById('submit-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const btn = document.getElementById('submit-btn');
-  const status = document.getElementById('submit-status');
-  btn.disabled = true;
-  btn.textContent = 'Submitting…';
-  const data = new FormData(e.target);
-  try {
-    const r = await fetch('/api/submit/mcn', { method: 'POST', body: data });
-    const d = await r.json();
-    if (r.ok) window.location.href = `/job/${d.job_id}`;
-    else { status.textContent = d.detail || 'Submission failed'; btn.disabled = false; btn.textContent = 'Submit Job'; }
-  } catch(err) {
-    status.textContent = 'Network error: ' + err.message;
-    btn.disabled = false; btn.textContent = 'Submit Job';
-  }
-});
+wireSubmitForm('submit-form', 'submit-btn', 'submit-status', '/api/submit/mcn');
 </script>
 {% endblock %}

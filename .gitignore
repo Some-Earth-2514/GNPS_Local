@@ -6,6 +6,7 @@
 Makefile.credentials
 **/.nextflow*
 *.mgf
+*.idx
 *.log
 *.log.??????????
 /gnps_jobs/*

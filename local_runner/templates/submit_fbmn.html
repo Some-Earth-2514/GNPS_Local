@@ -19,8 +19,7 @@
   <div class="file-drop">
     <input type="file" name="quantification_table" accept=".csv,.txt,.tsv">
     <div class="file-placeholder">
-      Drop feature quantification table here or click to browse
-      <br>
+      Drop feature quantification table here or click to browse<br>
       MZmine2, MZmine3, XCMS, MS-DIAL, OpenMS, Progenesis, etc.
     </div>
     <div class="file-list"></div>
@@ -28,10 +27,10 @@
 
   <div class="form-section-title">Optional Inputs</div>
 
-  <div class="form-grid" style="margin-bottom: 20px;">
-    <div style="grid-column: span 2;">
+  <div class="form-grid" style="margin-bottom:20px;">
+    <div style="grid-column:span 2;">
       <label>Job Name</label>
-      <input type="text" name="JOB_NAME" placeholder="Enter a custom name for this job..." style="width: 100%;">
+      <input type="text" name="JOB_NAME" placeholder="Enter a custom name for this job..." style="width:100%;">
     </div>
   </div>
 
@@ -114,11 +113,7 @@
     <div>
       <label>Min Pairs Cosine</label>
       <input type="number" name="PAIRS_MIN_COSINE" value="0.1" step="0.01" min="0" max="1">
-      <div class="hint">
-        Raw pair generation threshold.
-        <br>
-        Lower = more pairs before Top-K filtering
-      </div>
+      <div class="hint">Raw pair generation threshold.<br>Lower = more pairs before Top-K filtering</div>
     </div>
     <div>
       <label>Max Precursor Mass Shift (Da)</label>
@@ -134,7 +129,7 @@
     </div>
     <div>
       <label>Molecular Community Networking</label>
-      <select name="MOLECULAR_COMMUNITY_NETWORKING">
+      <select name="MOLECULAR_COMMUNITY_NETWORKING" id="mcn-select">
         <option value="0">Disabled</option>
         <option value="1">Enabled</option>
       </select>
@@ -142,7 +137,7 @@
         Settings adjusted automatically for Molecular Community Networking
       </div>
     </div>
-    <div class="form-grid-hidden" id="mcn-params">
+    <div class="form-grid-hidden" id="mcn-params" style="display:none;">
       <div>
         <label>Sigmoid Steepness (K)</label>
         <input type="number" name="MCN_K" value="20" step="1" min="1" max="100">
@@ -154,10 +149,6 @@
         <div class="hint">Cosine score at the inflection point of the sigmoid</div>
       </div>
     </div>
-  </div>
-
-  <div class="hint" id="mcn-hint" style="display:none;">
-    Settings adjusted automatically for Molecular Community Networking
   </div>
 
   <div class="form-section-title">Library Search</div>
@@ -190,129 +181,27 @@
 {% endblock %}
 {% block scripts %}
 <script>
-
-document.addEventListener('change', e => {
-  const input = e.target;
-  if (input.type !== 'file') return;
-
-  const drop = input.closest('.file-drop');
-  if (!drop) return;
- 
-  const placeholder = drop.querySelector('.file-placeholder');
-  const fileList    = drop.querySelector('.file-list');
-  const files       = Array.from(input.files);
- 
-  if (files.length === 0) {
-    placeholder.style.display = 'block';
-    fileList.style.display    = 'none';
-    fileList.innerHTML        = '';
-  } else {
-    placeholder.style.display = 'none';
-    fileList.style.display    = 'block';
-    fileList.innerHTML        = files.map(f => `<div>${f.name}</div>`).join('');
-  }
-});
-
-const mcnSelect = document.querySelector('[name="MOLECULAR_COMMUNITY_NETWORKING"]');
-const scoreInput = document.querySelector('[name="SCORE_THRESHOLD"]');
-const topkInput = document.querySelector('[name="TOPK"]');
+const mcnSelect    = document.getElementById('mcn-select');
+const scoreInput   = document.querySelector('[name="SCORE_THRESHOLD"]');
+const topkInput    = document.querySelector('[name="TOPK"]');
 const maxCompInput = document.querySelector('[name="MAX_COMPONENT_SIZE"]');
+const hintEl       = document.getElementById('mcn-hint');
+const sigmoidParams = document.getElementById('mcn-params');
 
-function clampInput(input) {
-  const min = input.min !== "" ? parseFloat(input.min) : -Infinity;
-  const max = input.max !== "" ? parseFloat(input.max) : Infinity;
-  let val = parseFloat(input.value);
-  if (isNaN(val)) return;
-  if (val < min) input.value = min;
-  if (val > max) input.value = max;
+attachMCNClamping(scoreInput, mcnSelect);
+attachMCNClamping(topkInput,  mcnSelect);
+
+function applyMCN() {
+  updateMCNSettings(scoreInput, topkInput, maxCompInput, mcnSelect, hintEl, sigmoidParams);
 }
 
-function attachClamping(input) {
-  input.addEventListener('input', () => {
-    if (mcnSelect.value === "1") {
-      clampInput(input);
-    }
-  });
-}
-attachClamping(scoreInput);
-attachClamping(topkInput);
+mcnSelect.addEventListener('change', applyMCN);
+applyMCN();
 
-function updateMCNSettings() {
-  const enabled = mcnSelect.value === "1";
-  const hint = document.getElementById('mcn-hint');
-  const sigmoidParams = document.getElementById('mcn-params');
-  if (hint) {
-    hint.style.display = enabled ? 'block' : 'none';
-  }
-
-  if (sigmoidParams) {
-    sigmoidParams.style.display = enabled ? 'grid' : 'none';
-  }
-
-  if (enabled) {
-    // Cosine Score Threshold
-    scoreInput.value = 0.1;
-    scoreInput.min = 0;
-    scoreInput.max = 0.1;
-    scoreInput.step = 0.01;
-
-    // Top K Edges
-    topkInput.value = 100;
-    topkInput.min = 100;
-    topkInput.max = 10000;
-
-    // Max Component Size (locked)
-    maxCompInput.value = 0;
-    maxCompInput.disabled = true;
-    maxCompInput.style.opacity = 0.5;
-
-    clampInput(scoreInput);
-    clampInput(topkInput);
-  } else {
-    // Reset to defaults
-    scoreInput.value = 0.7;
-    scoreInput.min = 0;
-    scoreInput.max = 1;
-
-    topkInput.value = 10;
-    topkInput.min = 1;
-    topkInput.max = "";
-
-    maxCompInput.disabled = false;
-    maxCompInput.style.opacity = 1;
-    maxCompInput.value = 100;
-  }
-}
-
-// Run on change
-mcnSelect.addEventListener('change', updateMCNSettings);
-
-// Run once on page load (in case of pre-filled forms)
-updateMCNSettings();
-
-document.getElementById('submit-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const btn = document.getElementById('submit-btn');
-  const status = document.getElementById('submit-status');
-  btn.disabled = true;
-  btn.textContent = 'Submitting…';
-
-  if (mcnSelect.value === "1") {
-    clampInput(scoreInput);
-    clampInput(topkInput);
-    maxCompInput.value = 0;
-  }
-
-  const data = new FormData(e.target);
-  try {
-    const r = await fetch('/api/submit/fbmn', { method: 'POST', body: data });
-    const d = await r.json();
-    if (r.ok) window.location.href = `/job/${d.job_id}`;
-    else { status.textContent = d.detail || 'Submission failed'; btn.disabled = false; btn.textContent = 'Submit Job'; }
-  } catch(err) {
-    status.textContent = 'Network error: ' + err.message;
-    btn.disabled = false; btn.textContent = 'Submit Job';
-  }
-});
+wireSubmitForm(
+  'submit-form', 'submit-btn', 'submit-status',
+  '/api/submit/fbmn',
+  () => enforceMCNOnSubmit(scoreInput, topkInput, maxCompInput, mcnSelect)
+);
 </script>
 {% endblock %}

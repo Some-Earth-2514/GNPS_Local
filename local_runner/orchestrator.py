@@ -310,10 +310,14 @@ def list_libraries() -> list:
     return libs
 
 def delete_library(filename: str) -> bool:
-    """Delete a library MGF by filename. Returns True if deleted."""
     safe_name = Path(filename).name
     target = LIBRARIES_ROOT / safe_name
+    print(f"DEBUG delete_library: target={target} exists={target.exists()}")
     if target.exists() and target.suffix.lower() == ".mgf":
         target.unlink()
+        idx = LIBRARIES_ROOT / (safe_name + ".idx")
+        print(f"DEBUG idx: {idx} exists={idx.exists()}")
+        if idx.exists():
+            idx.unlink()
         return True
     return False

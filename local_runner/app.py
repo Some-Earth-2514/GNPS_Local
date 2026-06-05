@@ -5,13 +5,20 @@ Replaces the ProteoSAFe web frontend for single-user local use.
 
 import io
 import json
+import os
+import sys
+import uuid
+import asyncio
 import shutil
 import zipfile
+import threading
+import subprocess
+from datetime import datetime
 from pathlib import Path
-from typing import Optional, List, Annotated
+from typing import Optional, List
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
 
@@ -22,6 +29,20 @@ app = FastAPI(title="GNPS Local", version="1.0.0")
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+# Global task tracker for background index builds
+_index_build_tasks: dict[str, dict] = {}  # task_id -> {status, error, start_time}
+
+@app.get("/icon.svg")
+async def serve_favicon():
+    return FileResponse(str(BASE_DIR / "templates" / "icon.svg"), media_type="image/svg+xml")
+
+@app.get("/static/css/styles.css")
+async def serve_css():
+    return FileResponse(str(BASE_DIR / "templates" / "styles.css"), media_type="text/css")
+
+@app.get("/static/js/functions.js")
+async def serve_js():
+    return FileResponse(str(BASE_DIR / "templates" / "functions.js"), media_type="application/javascript")
 
 # ── Pages ──────────────────────────────────────────────────────────────────────
 
@@ -344,7 +365,11 @@ async def api_list_libraries():
 
 
 @app.post("/api/libraries/upload")
-async def api_upload_library(files: List[UploadFile] = File(...)):
+async def api_upload_libraries(files: List[UploadFile] = File(...)):
+    """Handle library uploads and trigger background index builds."""
+    library_dir = Path(os.environ.get("GNPS_LIBRARIES_DIR", orc.LIBRARIES_ROOT))
+    library_dir.mkdir(exist_ok=True, parents=True)
+    
     saved = []
     for f in files:
         if not f.filename:
@@ -352,11 +377,44 @@ async def api_upload_library(files: List[UploadFile] = File(...)):
         safe_name = Path(f.filename).name
         if not safe_name.lower().endswith(".mgf"):
             continue
-        dest = orc.LIBRARIES_ROOT / safe_name
-        with open(dest, "wb") as out:
-            shutil.copyfileobj(f.file, out)
+        dest = library_dir / safe_name
+        
+        # Read streaming file bytes securely
+        dest.write_bytes(await f.read())
         saved.append(safe_name)
-    return {"saved": saved}
+        
+    if not saved:
+        return {"saved": [], "message": "No valid .mgf library files uploaded."}
+
+    # Trigger background index build
+    task_id = str(uuid.uuid4())
+    _index_build_tasks[task_id] = {
+        "status": "queued",
+        "files": saved,
+        "start_time": datetime.now().isoformat(),
+    }
+    
+    thread = threading.Thread(
+        target=_build_indexes_background,
+        args=(library_dir, task_id),
+        daemon=True,
+    )
+    thread.start()
+    
+    return {
+        "saved": saved,
+        "task_id": task_id,
+        "message": f"Indexing {len(saved)} library file(s) in background..."
+    }
+
+
+@app.get("/api/libraries/index-status/{task_id}")
+async def get_index_status(task_id: str):
+    """Poll status of background index build."""
+    task = _index_build_tasks.get(task_id)
+    if not task:
+        return {"status": "not_found"}
+    return task
 
 
 @app.delete("/api/libraries/{filename}")
@@ -389,7 +447,6 @@ def _parse_log_timings(log_text: str) -> list[dict]:
     Handles midnight wraparound.
     """
     import re
-    from datetime import timedelta
 
     step_re  = re.compile(r'^\[(\d{2}:\d{2}:\d{2})\] --- STEP: (.+?) ---')
     end_re   = re.compile(r'^\[(\d{2}:\d{2}:\d{2})\] STEP (OK|FAILED|TIMED OUT|TERMINATED)')
@@ -499,3 +556,19 @@ async def api_timings_aggregate(workflow: str = "all"):
         "avg_total_s":     round(sum(job_totals) / len(job_totals), 2) if job_totals else 0,
         "most_failed_step": max(failure_counts, key=failure_counts.get) if failure_counts else None,
     }
+
+
+def _build_indexes_background(library_dir: Path, task_id: str):
+    """Run in background thread."""
+    try:
+        _index_build_tasks[task_id]["status"] = "building"
+        subprocess.run([
+            sys.executable,
+            str(Path(__file__).parent / "workflows" / "getGNPS_library_annotations_local.py"),
+            "--build_indexes",
+            "--library_dir", str(library_dir),
+        ], check=True, capture_output=True, timeout=3600)
+        _index_build_tasks[task_id]["status"] = "done"
+    except Exception as e:
+        _index_build_tasks[task_id]["status"] = "error"
+        _index_build_tasks[task_id]["error"] = str(e)
