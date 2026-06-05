@@ -80,7 +80,7 @@ def run(job: "Job") -> bool:
     )
     metadata_file = _find_input(input_dir, ["*metadata*", "*metadata*.tsv", "*metadata*.txt"])
     library_dir = Path(os.environ.get("GNPS_LIBRARIES_DIR", REPO_ROOT / "libraries"))
-    
+
     if not mgf_file:
         job.log("ERROR: No MGF file found in input directory")
         return False
@@ -91,6 +91,7 @@ def run(job: "Job") -> bool:
     job.log(f"MGF: {mgf_file}")
     job.log(f"Quantification table: {quant_table}")
     job.log(f"Metadata: {metadata_file or 'none'}")
+    job.log(f"Library dir: {library_dir}")
 
     # reformat_quantification.py globs input_spectra_folder/* and requires exactly 1 file
     # Move MGF into its own subfolder so other input files don't interfere
@@ -280,7 +281,8 @@ def run(job: "Job") -> bool:
                         str(libsearch_merged),
                         str(libsearch_db),
                         "--topk", p.get("TOP_K_RESULTS", "1"),
-                    ], timeout=300)
+                        "--library_dir", str(library_dir),  # <-- backfill SMILES/InChI from MGF
+                    ], timeout=600)
                     if not annot_ok:
                         job.log("WARNING: libsearch_db_annot failed/timed out — writing stub so pipeline can continue")
                         _ensure_empty_libsearch_tsv(libsearch_db)
@@ -346,7 +348,7 @@ def run(job: "Job") -> bool:
     ])
     if not ok:
         return False
-    
+
     # ── Step 14: Molecular Community Networking (optional) ───────────────────
     if p.get("MOLECULAR_COMMUNITY_NETWORKING") == "1":
         from workflows import mcn as mcn_module
@@ -421,7 +423,7 @@ _LIBSEARCH_HEADER = "\t".join([
     "Title", "Compound_Name", "Retention_Time", "MZErrorPPM", "SMILES", "InChI",
     "InChIKey", "FormulaString", "IonMode", "Adduct", "ExactMass", "Precursor_MZ",
     "SharedPeaks", "TotalPeaks", "MatchingScore", "NumPeaks",
-    
+
     # API-named aliases read by enrich_clusterinfosummary.py
     "MQScore", "Smiles", "INCHI",
 
@@ -429,6 +431,7 @@ _LIBSEARCH_HEADER = "\t".join([
     "MassDiff", "tags", "Library_Class", "Instrument",
     "Ion_Source", "PI", "Data_Collector", "Compound_Source",
 ])
+
 def _ensure_empty_libsearch_tsv(path: Path):
     """Write a valid header-only library search TSV. Always overwrites to prevent
     stale/corrupt content from a prior failed run causing downstream KeyError crashes."""

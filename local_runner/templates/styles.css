@@ -986,3 +986,36 @@ pre.log {
   font-size: 12px;
   padding: 12px 0;
 }
+
+/* ── Index Building Component Enhancements ──────────────────────── */
+#index-progress {
+  display: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  margin-top: 14px;
+}
+
+#index-message {
+  font-size: 12px;
+  font-family: var(--font);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Add an active subtle breathing effect when compiling metadata */
+#index-progress .indexing-pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background-color: var(--warning);
+  border-radius: 50%;
+  animation: indexBreathe 1.5s infinite ease-in-out;
+}
+
+@keyframes indexBreathe {
+  0%, 100% { transform: scale(0.8); opacity: 0.5; }
+  50% { transform: scale(1.2); opacity: 1; }
+}

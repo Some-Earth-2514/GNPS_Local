@@ -591,9 +591,13 @@ function switchTab(name) {
 }
 
 async function uploadLibraries() {
-  const fileInput    = document.getElementById('lib-file-input');
-  const uploadBtn    = document.getElementById('upload-btn');
-  const uploadStatus = document.getElementById('upload-status');
+  const fileInput     = document.getElementById('lib-file-input');
+  const uploadBtn     = document.getElementById('upload-btn');
+  const uploadStatus  = document.getElementById('upload-status');
+  const indexProgress = document.getElementById('index-progress');
+  const indexMessage  = document.getElementById('index-message');
+  const placeholder   = document.querySelector('#lib-drop-zone .file-placeholder'); // Grab the placeholder
+
   const files = Array.from(fileInput.files);
   if (!files.length) return;
 
@@ -606,44 +610,118 @@ async function uploadLibraries() {
   const progressLbl  = document.getElementById('upload-progress-label');
   const progressPct  = document.getElementById('upload-progress-pct');
 
-  progressWrap.style.display = 'block';
-  progressBar.style.width    = '0%';
-  progressPct.textContent    = '0%';
+  if (progressWrap) progressWrap.style.display = 'block';
+  if (progressBar)  progressBar.style.width    = '0%';
+  if (progressPct)  progressPct.textContent    = '0%';
+  if (progressLbl)  progressLbl.textContent    = `Uploading ${files.length} library file(s)…`;
 
-  const saved = [], errors = [];
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    progressLbl.textContent = `Uploading ${f.name} (${i + 1} of ${files.length})…`;
-    progressBar.style.width = Math.round((i / files.length) * 100) + '%';
-    progressPct.textContent = Math.round((i / files.length) * 100) + '%';
-    const data = new FormData();
-    data.append('files', f);
-    try {
-      const r = await fetch('/api/libraries/upload', { method: 'POST', body: data });
-      const d = await r.json();
-      if (r.ok && d.saved) saved.push(...d.saved);
-      else errors.push(f.name);
-    } catch (e) { errors.push(f.name); }
+  // UI BAND-AID: Show indexing block immediately so the user knows it's queued
+  if (indexProgress) {
+    indexProgress.style.display = 'block';
+    if (indexMessage) {
+      indexMessage.style.color = 'var(--muted)';
+      indexMessage.innerHTML = '<span class="indexing-pulse" style="background-color: var(--muted); animation: none; opacity: 0.5;"></span> Waiting for upload to finish...';
+    }
   }
 
-  progressBar.style.width = '100%';
-  progressPct.textContent = '100%';
-  await new Promise(res => setTimeout(res, 400));
-  progressWrap.style.display = 'none';
+  const data = new FormData();
+  files.forEach(f => data.append('files', f));
 
-  if (errors.length) {
-    uploadStatus.style.color   = 'var(--danger)';
-    uploadStatus.textContent   = `Failed: ${errors.join(', ')}` + (saved.length ? ` · Saved: ${saved.join(', ')}` : '');
-  } else {
-    uploadStatus.style.color   = 'var(--success)';
-    uploadStatus.textContent   = `✓ Saved ${saved.length} file${saved.length !== 1 ? 's' : ''}`;
+  let isIndexing = false;
+
+  try {
+    const r = await fetch('/api/libraries/upload', { method: 'POST', body: data });
+    const d = await r.json();
+
+    if (!r.ok) {
+      throw new Error(d.detail || 'Upload submission failed');
+    }
+
+    if (progressBar) progressBar.style.width = '100%';
+    if (progressPct) progressPct.textContent = '100%';
+    if (uploadStatus) {
+      uploadStatus.style.color = 'var(--success)';
+      uploadStatus.textContent = `✓ Uploaded ${d.saved.length} file(s)`;
+    }
+
+    if (indexProgress && d.task_id) {
+      isIndexing = true;
+      if (indexMessage) {
+        indexMessage.style.color = 'var(--warning)';
+        indexMessage.innerHTML = '<span class="indexing-pulse"></span> <strong>Upload complete</strong> Queueing background indexing engine...';
+      }
+        if (progressWrap) progressWrap.style.display = 'none';
+
+      const taskId = d.task_id;
+      
+      const checkStatus = async () => {
+        try {
+          const sr = await fetch(`/api/libraries/index-status/${taskId}`);
+          if (!sr.ok) return setTimeout(checkStatus, 2000);
+          const sd = await sr.json();
+          
+          if (sd.status === "queued" || sd.status === "building") {
+            if (indexMessage) {
+              indexMessage.style.color = 'var(--warning)';
+              indexMessage.innerHTML = sd.status === "building" 
+                ? '<span class="indexing-pulse"></span> Building database indexes... (this may take a few minutes)'
+                : '<span class="indexing-pulse"></span> Task queued in thread worker pool...';
+            }
+            setTimeout(checkStatus, 2000);
+          } else if (sd.status === "done") {
+            if (indexMessage) {
+              indexMessage.innerHTML = "✓ Indexes built successfully!";
+              indexMessage.style.color = "var(--success)";
+            }
+            setTimeout(() => { 
+              if (indexProgress) indexProgress.style.display = 'none'; 
+              if (progressWrap) progressWrap.style.display = 'none';
+            }, 4000);
+            await refreshLibraries();
+          } else if (sd.status === "error" || sd.status === "not_found") {
+            if (indexMessage) {
+              indexMessage.textContent = `Indexing failed: ${sd.error || 'Task context lost.'}`;
+              indexMessage.style.color = "var(--danger)";
+            }
+            setTimeout(() => { 
+              if (progressWrap) progressWrap.style.display = 'none'; 
+            }, 6000);
+          }
+        } catch (pollErr) {
+          console.error("Polling error:", pollErr);
+          setTimeout(checkStatus, 2000);
+        }
+      };
+      
+      setTimeout(checkStatus, 1000);
+    }
+
+  } catch (err) {
+    if (uploadStatus) {
+      uploadStatus.style.color = 'var(--danger)';
+      uploadStatus.textContent = 'Upload error: ' + err.message;
+    }
+    // Hide the fake indexing block if the initial upload crashed
+    if (indexProgress) indexProgress.style.display = 'none';
+  } finally {
+    uploadBtn.disabled = false;
+    uploadBtn.textContent = 'Upload';
+    
+    if (!isIndexing) {
+      setTimeout(() => {
+        if (progressWrap) progressWrap.style.display = 'none';
+      }, 1000);
+    }
+    
+    // Clear out the files and explicitly turn the placeholder text back on
+    if (document.getElementById('lib-file-list')) {
+      document.getElementById('lib-file-list').innerHTML = '';
+      if (placeholder) placeholder.style.display = 'block';
+    }
+    fileInput.value = '';
+    
+    await refreshLibraries();
   }
-
-  uploadBtn.textContent = 'Upload';
-  uploadBtn.disabled    = true;
-  document.getElementById('lib-file-list').innerHTML = '';
-  fileInput.value = '';
-  await refreshLibraries();
 }
 
 function onLibCheckChange() {
