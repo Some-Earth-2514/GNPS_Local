@@ -7,7 +7,7 @@
     <p align="center"><strong><a href="https://some-earth-2514.github.io/GNPS_Local_Documentation/">Documenation</a></strong></p>
 </p>
 
-<video controls src="https://some-earth-2514.github.io/GNPS_Local_Documentation/assets/videos/GNPS_Local_demo.mp4" title="GNPS Local Demo"></video>
+https://github.com/user-attachments/assets/914a75f2-40aa-4a3a-afb0-9b1addf0f4db
 
 GNPS Local is an offline version of the GNPS (Global Natural Products Social Molecular Networking) platform — the widely-used tool for annotating small molecules in MS/MS metabolomics data. Where the original GNPS ran on cloud servers at UC San Diego, GNPS Local runs entirely on your own computer, with no internet connection needed once it is set up.
 
