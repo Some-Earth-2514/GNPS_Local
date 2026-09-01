@@ -53,32 +53,46 @@ def run(job: "Job") -> bool:
     # ── Configuration ─────────────────────────────────────────────────────────
     mcn_out_dir = out / "mcn"
     mcn_out_dir.mkdir(exist_ok=True)
-    
+
     k_val = float(p.get("MCN_K", 20.0))
     c_val = float(p.get("MCN_C", 0.75))
     seed  = int(p.get("MCN_SEED", 123))
+    base_name = p.get("JOB_NAME") or job.id
 
+    # ── Step: load_graph ──────────────────────────────────────────────────────
+    job.log("--- STEP: mcn_load_graph ---")
     try:
-        # ── Load and Process Graph ────────────────────────────────────────────
         G = nx.read_graphml(str(input_graphml))
         job.log(f"MCN: Nodes={len(G.nodes())}, Edges={len(G.edges())}")
-
         if len(G.nodes()) == 0:
             job.log("ERROR: Graph contains no nodes.")
+            job.log("STEP FAILED (exit 1)")
             return False
+        job.log("STEP OK")
+    except Exception as e:
+        job.log(f"ERROR: {e}")
+        job.log("STEP FAILED (exit 1)")
+        return False
 
-        # Apply sigmoid edge weights
-        # We handle the case where 'cosine_score' might be missing or named 'weight'
+    # ── Step: apply_sigmoid ───────────────────────────────────────────────────
+    job.log("--- STEP: mcn_apply_sigmoid ---")
+    try:
         for u, v, data in G.edges(data=True):
             score = data.get("cosine_score") or data.get("weight") or 0.0
             data["sigmoid_score"] = _sigmoid(float(score), k_val, c_val)
 
-        # Extract GCC
         gcc_nodes = max(nx.connected_components(G), key=len)
         Gc = G.subgraph(gcc_nodes).copy()
         job.log(f"MCN: Processing GCC ({len(Gc.nodes())} nodes)")
+        job.log("STEP OK")
+    except Exception as e:
+        job.log(f"ERROR: {e}")
+        job.log("STEP FAILED (exit 1)")
+        return False
 
-        # ── Louvain Community Detection ───────────────────────────────────────
+    # ── Step: louvain_communities ─────────────────────────────────────────────
+    job.log("--- STEP: mcn_louvain_communities ---")
+    try:
         comm = nx.community.louvain_communities(Gc, seed=seed, weight="sigmoid_score")
         job.log(f"MCN: Detected {len(comm)} communities")
 
@@ -86,7 +100,7 @@ def run(job: "Job") -> bool:
             for node in community:
                 Gc.nodes[node]["community_id"] = ind + 1
 
-        # Singleton Logic
+        # Singleton logic
         for node in Gc:
             is_singleton = all(
                 float(Gc.edges[node, nbr].get("cosine_score", 0)) < 0.7
@@ -94,20 +108,25 @@ def run(job: "Job") -> bool:
             )
             Gc.nodes[node]["singleton"] = "1" if is_singleton else "0"
 
-        # ── Write & Surface Outputs ───────────────────────────────────────────
-        # Use a consistent prefix for standalone outputs
-        base_name = "gnps_mcn"
-        
+        job.log("STEP OK")
+    except Exception as e:
+        job.log(f"ERROR: {e}")
+        job.log("STEP FAILED (exit 1)")
+        return False
+
+    # ── Step: write_outputs ───────────────────────────────────────────────────
+    job.log("--- STEP: mcn_write_outputs ---")
+    try:
         nx.write_graphml(Gc, str(mcn_out_dir / f"{base_name}.graphml"))
-        
-        # Intra-community Cut
+
+        # Intra-community cut
         Gc_cut = nx.Graph(Gc)
         for u, v in list(Gc.edges()):
             if Gc.nodes[u]["community_id"] != Gc.nodes[v]["community_id"]:
                 Gc_cut.remove_edge(u, v)
         nx.write_graphml(Gc_cut, str(mcn_out_dir / f"{base_name}_cut.graphml"))
 
-        # Spanning Tree
+        # Spanning tree
         St = nx.maximum_spanning_tree(Gc_cut, weight="sigmoid_score")
         nx.write_graphml(St, str(mcn_out_dir / f"{base_name}_spanning_tree.graphml"))
 
@@ -117,12 +136,14 @@ def run(job: "Job") -> bool:
             _shutil.copy2(str(mcn_file), str(out / mcn_file.name))
 
         job.log("MCN: Process completed.")
-        return True
-
+        job.log("STEP OK")
     except Exception as e:
-        job.log(f"ERROR: MCN failed: {str(e)}")
+        job.log(f"ERROR: {e}")
+        job.log("STEP FAILED (exit 1)")
         return False
-    
+
+    return True
+
 if __name__ == "__main__":
     import argparse
 

@@ -180,6 +180,7 @@ async def restart_job(job_id: str):
 @app.post("/api/submit/molecular_networking")
 async def submit_molecular_networking(
     input_spectra: List[UploadFile] = File(...),
+    JOB_NAME: str = Form(""),
     TOLERANCE: float = Form(0.02),
     MIN_MATCHED_PEAKS: int = Form(6),
     SCORE_THRESHOLD: float = Form(0.7),
@@ -197,6 +198,7 @@ async def submit_molecular_networking(
     metadatafile: Optional[UploadFile] = File(default=None),
 ):
     params = {
+        "JOB_NAME": JOB_NAME,
         "TOLERANCE": str(TOLERANCE),
         "MIN_MATCHED_PEAKS": str(MIN_MATCHED_PEAKS),
         "SCORE_THRESHOLD": str(SCORE_THRESHOLD),
@@ -292,6 +294,7 @@ async def submit_fbmn(
 
 @app.post("/api/submit/mshub_gc")
 async def submit_mshub_gc(
+    JOB_NAME: str = Form(""),
     input_spectra: List[UploadFile] = File(...),
     FILTER_WINDOW: float = Form(0.5),
     MAX_SHIFT_SECONDS: float = Form(5.0),
@@ -301,6 +304,7 @@ async def submit_mshub_gc(
     CLUSTER_MIN_SIZE: int = Form(1),
 ):
     params = {
+        "JOB_NAME": JOB_NAME,
         "FILTER_WINDOW": str(FILTER_WINDOW),
         "MAX_SHIFT_SECONDS": str(MAX_SHIFT_SECONDS),
         "NUM_PEAKS": str(NUM_PEAKS),
@@ -315,11 +319,13 @@ async def submit_mshub_gc(
 
 @app.post("/api/submit/mcn")
 async def submit_mcn(
+    JOB_NAME: str = Form(""),
     input_spectra: List[UploadFile] = File(...),
     MCN_K: float = Form(20.0),
     MCN_C: float = Form(0.75),
 ):
     params = {
+        "JOB_NAME": JOB_NAME,
         "MCN_K": str(MCN_K),
         "MCN_C": str(MCN_C),
     }
