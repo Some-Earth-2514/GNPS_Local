@@ -29,8 +29,13 @@ app = FastAPI(title="GNPS Local", version="1.0.0")
 BASE_DIR = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
-# Global task tracker for background index builds
+# Global task tracker for background index builds (persisted to disk)
 _index_build_tasks: dict[str, dict] = {}  # task_id -> {status, error, start_time}
+
+def _get_index_tasks_file():
+    """Get the path to the persisted task state file."""
+    library_dir = Path(os.environ.get("GNPS_LIBRARIES_DIR", orc.LIBRARIES_ROOT))
+    return library_dir / ".index_tasks.json"
 
 @app.get("/icon.svg")
 async def serve_favicon():
@@ -38,11 +43,15 @@ async def serve_favicon():
 
 @app.get("/static/css/styles.css")
 async def serve_css():
-    return FileResponse(str(BASE_DIR / "templates" / "styles.css"), media_type="text/css")
+    resp = FileResponse(str(BASE_DIR / "templates" / "styles.css"), media_type="text/css")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 @app.get("/static/js/functions.js")
 async def serve_js():
-    return FileResponse(str(BASE_DIR / "templates" / "functions.js"), media_type="application/javascript")
+    resp = FileResponse(str(BASE_DIR / "templates" / "functions.js"), media_type="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return resp
 
 # ── Pages ──────────────────────────────────────────────────────────────────────
 
@@ -375,7 +384,7 @@ async def api_upload_libraries(files: List[UploadFile] = File(...)):
     """Handle library uploads and trigger background index builds."""
     library_dir = Path(os.environ.get("GNPS_LIBRARIES_DIR", orc.LIBRARIES_ROOT))
     library_dir.mkdir(exist_ok=True, parents=True)
-    
+
     saved = []
     for f in files:
         if not f.filename:
@@ -384,29 +393,31 @@ async def api_upload_libraries(files: List[UploadFile] = File(...)):
         if not safe_name.lower().endswith(".mgf"):
             continue
         dest = library_dir / safe_name
-        
+
         # Read streaming file bytes securely
         dest.write_bytes(await f.read())
         saved.append(safe_name)
-        
+
     if not saved:
         return {"saved": [], "message": "No valid .mgf library files uploaded."}
 
     # Trigger background index build
     task_id = str(uuid.uuid4())
-    _index_build_tasks[task_id] = {
+    task_info = {
         "status": "queued",
         "files": saved,
         "start_time": datetime.now().isoformat(),
     }
-    
+    _index_build_tasks[task_id] = task_info
+    _persist_task_state()
+
     thread = threading.Thread(
         target=_build_indexes_background,
         args=(library_dir, task_id),
-        daemon=True,
+        daemon=False,  # non-daemon so it survives UI navigation
     )
     thread.start()
-    
+
     return {
         "saved": saved,
         "task_id": task_id,
@@ -416,11 +427,41 @@ async def api_upload_libraries(files: List[UploadFile] = File(...)):
 
 @app.get("/api/libraries/index-status/{task_id}")
 async def get_index_status(task_id: str):
-    """Poll status of background index build."""
+    """Poll status of background index build. Reloads from disk to handle server restarts."""
+    # Reload task state from disk in case server was restarted
+    _restore_task_state()
     task = _index_build_tasks.get(task_id)
     if not task:
         return {"status": "not_found"}
+
+    # Check if task is stuck (building for > 30 mins = likely killed process, 100 libs take max 15 mins)
+    if task.get("status") == "building":
+        try:
+            start_time = datetime.fromisoformat(task.get("start_time", ""))
+            elapsed_sec = (datetime.now() - start_time).total_seconds()
+            if elapsed_sec > 1800:  # 30 minutes
+                task["status"] = "error"
+                task["error"] = "Indexing timed out (process likely killed). Please retry the upload."
+                _persist_task_state()
+        except (ValueError, AttributeError):
+            pass
+
     return task
+
+
+@app.get("/api/libraries/latest-upload-status")
+async def get_latest_upload_status():
+    """Get the most recent upload task status (for global notifications across pages)."""
+    _restore_task_state()
+    if not _index_build_tasks:
+        return {"task_id": None, "status": "none"}
+    # Return the most recent task by start_time
+    latest = max(_index_build_tasks.items(),
+                 key=lambda x: x[1].get("start_time", ""),
+                 default=(None, {}))
+    if latest[0] is None:
+        return {"task_id": None, "status": "none"}
+    return {"task_id": latest[0], **latest[1]}
 
 
 @app.delete("/api/libraries/{filename}")
@@ -565,9 +606,10 @@ async def api_timings_aggregate(workflow: str = "all"):
 
 
 def _build_indexes_background(library_dir: Path, task_id: str):
-    """Run in background thread."""
+    """Run in background thread. Persists state to disk so progress survives server restarts."""
     try:
         _index_build_tasks[task_id]["status"] = "building"
+        _persist_task_state()
         subprocess.run([
             sys.executable,
             str(Path(__file__).parent / "workflows" / "getGNPS_library_annotations_local.py"),
@@ -575,6 +617,52 @@ def _build_indexes_background(library_dir: Path, task_id: str):
             "--library_dir", str(library_dir),
         ], check=True, capture_output=True, timeout=3600)
         _index_build_tasks[task_id]["status"] = "done"
+        _persist_task_state()
     except Exception as e:
         _index_build_tasks[task_id]["status"] = "error"
         _index_build_tasks[task_id]["error"] = str(e)
+        _persist_task_state()
+
+
+def _persist_task_state():
+    """Save task state to disk for persistence across server restarts."""
+    try:
+        task_file = _get_index_tasks_file()
+        task_file.parent.mkdir(exist_ok=True, parents=True)
+        task_file.write_text(json.dumps(_index_build_tasks, indent=2))
+    except Exception as e:
+        print(f"Warning: Failed to persist task state: {e}")
+
+
+def _restore_task_state():
+    """Load task state from disk on startup."""
+    global _index_build_tasks
+    task_file = _get_index_tasks_file()
+    if task_file.exists():
+        try:
+            _index_build_tasks = json.loads(task_file.read_text())
+        except Exception as e:
+            print(f"Warning: Failed to restore task state: {e}")
+            _index_build_tasks = {}
+
+
+@app.on_event("startup")
+def startup_event():
+    """Restore task state and handle crashed tasks on server startup."""
+    _restore_task_state()
+    library_dir = Path(os.environ.get("GNPS_LIBRARIES_DIR", orc.LIBRARIES_ROOT))
+
+    for task_id, task_info in list(_index_build_tasks.items()):
+        if task_info.get("status") == "building":
+            # Tasks in "building" state when server restarts = process was killed
+            task_info["status"] = "error"
+            task_info["error"] = "Process interrupted by container shutdown/restart. Please retry the upload."
+            _persist_task_state()
+        elif task_info.get("status") == "queued":
+            # Queued tasks can be retried
+            thread = threading.Thread(
+                target=_build_indexes_background,
+                args=(library_dir, task_id),
+                daemon=False,
+            )
+            thread.start()

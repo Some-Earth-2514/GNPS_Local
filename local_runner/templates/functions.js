@@ -19,6 +19,229 @@ function toggleTheme() {
   if (typeof window._onThemeChange === 'function') window._onThemeChange(next);
 }
 
+/* ── Notification History (persisted in localStorage) ────────────────────── */
+const NOTIF_STORAGE_KEY = 'gnps-notif-history';
+const NOTIF_MAX = 50;
+
+function _loadNotifHistory() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function _saveNotifHistory(history) {
+  try { localStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(history)); }
+  catch {}
+}
+
+function _pushNotifHistory(title, message, type) {
+  const history = _loadNotifHistory();
+  history.unshift({ title, message, type, time: Date.now(), unread: true });
+  if (history.length > NOTIF_MAX) history.length = NOTIF_MAX;
+  _saveNotifHistory(history);
+  _renderNotifPanel();
+  _updateNotifBadge();
+}
+
+function _fmtNotifTime(ts) {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60)   return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function _renderNotifPanel() {
+  const listEl  = document.getElementById('notif-list');
+  const emptyEl = document.getElementById('notif-empty');
+  if (!listEl) return;
+
+  const history = _loadNotifHistory();
+  if (!history.length) {
+    if (emptyEl) emptyEl.style.display = 'block';
+    // Remove any existing items
+    listEl.querySelectorAll('.notif-item').forEach(el => el.remove());
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  // Rebuild list
+  listEl.querySelectorAll('.notif-item').forEach(el => el.remove());
+  const icons = { success: '✓', warning: '⚠', error: '✕', info: 'ℹ' };
+  history.forEach(n => {
+    const item = document.createElement('div');
+    item.className = 'notif-item' + (n.unread ? ' unread' : '');
+    item.innerHTML = `
+      <span class="notif-item-icon ${n.type}">${icons[n.type] || 'ℹ'}</span>
+      <div class="notif-item-body">
+        <div class="notif-item-title">${n.title}</div>
+        <div class="notif-item-message">${n.message}</div>
+      </div>
+      <span class="notif-item-time">${_fmtNotifTime(n.time)}</span>
+    `;
+    listEl.appendChild(item);
+  });
+}
+
+function _updateNotifBadge() {
+  const badge = document.getElementById('notif-badge');
+  if (!badge) return;
+  const unread = _loadNotifHistory().filter(n => n.unread).length;
+  if (unread > 0) {
+    badge.textContent = unread > 9 ? '9+' : unread;
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function _markAllRead() {
+  const history = _loadNotifHistory().map(n => ({ ...n, unread: false }));
+  _saveNotifHistory(history);
+  _updateNotifBadge();
+  // Remove unread highlight without full re-render
+  document.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread'));
+}
+
+function toggleNotifPanel(e) {
+  e.stopPropagation();
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    _renderNotifPanel();
+    _markAllRead();
+  }
+}
+
+function clearAllNotifications() {
+  _saveNotifHistory([]);
+  _renderNotifPanel();
+  _updateNotifBadge();
+}
+
+// Close panel when clicking outside
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('notif-bell-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    const panel = document.getElementById('notif-panel');
+    if (panel) panel.style.display = 'none';
+  }
+});
+
+/* ── Global Notification Toast ───────────────────────────────────────────── */
+let _notifAutoDismissTimer = null;
+
+function showGlobalNotification(title, message, type = 'info', duration = 6000) {
+  // Only record terminal states (success/error) — skip transient warning toasts
+  if (type === 'success' || type === 'error') {
+    _pushNotifHistory(title, message, type);
+  }
+
+  const notifEl = document.getElementById('global-notification');
+  if (!notifEl) return;
+  const content = notifEl.querySelector('.notification-content');
+  const titleEl = document.getElementById('notification-title');
+  const msgEl   = document.getElementById('notification-message');
+  const iconEl  = document.getElementById('notification-icon');
+  if (!content || !titleEl || !msgEl || !iconEl) return;
+
+  if (_notifAutoDismissTimer) {
+    clearTimeout(_notifAutoDismissTimer);
+    _notifAutoDismissTimer = null;
+  }
+
+  titleEl.textContent = title;
+  msgEl.textContent   = message;
+
+  content.className = 'notification-content';
+  if (type === 'success') {
+    content.classList.add('success');
+    iconEl.textContent = '✓';
+  } else if (type === 'warning') {
+    content.classList.add('warning');
+    iconEl.textContent = '⚠';
+  } else if (type === 'error') {
+    content.classList.add('error');
+    iconEl.textContent = '✕';
+  } else {
+    iconEl.textContent = 'ℹ';
+  }
+
+  notifEl.style.display = 'block';
+
+  if (duration > 0) {
+    _notifAutoDismissTimer = setTimeout(() => {
+      notifEl.style.display = 'none';
+      _notifAutoDismissTimer = null;
+    }, duration);
+  }
+}
+
+function closeGlobalNotification() {
+  const notifEl = document.getElementById('global-notification');
+  if (notifEl) notifEl.style.display = 'none';
+  if (_notifAutoDismissTimer) {
+    clearTimeout(_notifAutoDismissTimer);
+    _notifAutoDismissTimer = null;
+  }
+}
+
+/* ── Upload Task Background Poller ───────────────────────────────────────── */
+let _globalUploadPollTimer = null;
+
+function _pollUploadTaskGlobal(taskId) {
+  if (_globalUploadPollTimer) clearTimeout(_globalUploadPollTimer);
+
+  fetch(`/api/libraries/index-status/${taskId}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d) {
+        _globalUploadPollTimer = setTimeout(() => _pollUploadTaskGlobal(taskId), 3000);
+        return;
+      }
+      if (d.status === 'queued' || d.status === 'building') {
+        showGlobalNotification(
+          d.status === 'building' ? 'Building Indexes…' : 'Indexing Queued',
+          `Processing ${d.files ? d.files.length : '?'} library file(s) in background`,
+          'warning',
+          0
+        );
+        _globalUploadPollTimer = setTimeout(() => _pollUploadTaskGlobal(taskId), 3000);
+      } else if (d.status === 'done') {
+        showGlobalNotification(
+          'Libraries Indexed',
+          `Successfully built indexes for ${d.files ? d.files.length : '?'} library file(s)`,
+          'success',
+          8000
+        );
+        sessionStorage.removeItem('gnps-current-upload-task');
+      } else {
+        showGlobalNotification(
+          'Indexing Failed',
+          d.error || 'Unknown error during indexing. Please retry the upload.',
+          'error',
+          0
+        );
+        sessionStorage.removeItem('gnps-current-upload-task');
+      }
+    })
+    .catch(() => {
+      _globalUploadPollTimer = setTimeout(() => _pollUploadTaskGlobal(taskId), 3000);
+    });
+}
+
+function checkAndShowUploadNotification() {
+  const taskId = sessionStorage.getItem('gnps-current-upload-task');
+  if (!taskId) return;
+  _pollUploadTaskGlobal(taskId);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  _updateNotifBadge();
+  checkAndShowUploadNotification();
+});
+
 /* ── File-drop zones ─────────────────────────────────────────────────────── */
 function _initDropZone(zone) {
   const input       = zone.querySelector('input[type=file]');
@@ -653,46 +876,64 @@ async function uploadLibraries() {
         if (progressWrap) progressWrap.style.display = 'none';
 
       const taskId = d.task_id;
-      
+      console.log('[Upload] Got taskId:', taskId, 'Saved to sessionStorage');
+      sessionStorage.setItem('gnps-current-upload-task', taskId);  // Save for global notification
+
       const checkStatus = async () => {
         try {
+          console.log('[Upload-checkStatus] Polling task:', taskId);
           const sr = await fetch(`/api/libraries/index-status/${taskId}`);
           if (!sr.ok) return setTimeout(checkStatus, 2000);
           const sd = await sr.json();
-          
+
           if (sd.status === "queued" || sd.status === "building") {
             if (indexMessage) {
               indexMessage.style.color = 'var(--warning)';
-              indexMessage.innerHTML = sd.status === "building" 
+              indexMessage.innerHTML = sd.status === "building"
                 ? '<span class="indexing-pulse"></span> Building database indexes... (this may take a few minutes)'
                 : '<span class="indexing-pulse"></span> Task queued in thread worker pool...';
             }
             setTimeout(checkStatus, 2000);
           } else if (sd.status === "done") {
+            console.log('[Upload] Indexing complete, calling showGlobalNotification');
             if (indexMessage) {
               indexMessage.innerHTML = "✓ Indexes built successfully!";
               indexMessage.style.color = "var(--success)";
             }
-            setTimeout(() => { 
-              if (indexProgress) indexProgress.style.display = 'none'; 
+            showGlobalNotification(
+              'Libraries Indexed',
+              `Successfully built indexes for ${sd.files ? sd.files.length : '?'} file(s)`,
+              'success',
+              7000
+            );
+            setTimeout(() => {
+              if (indexProgress) indexProgress.style.display = 'none';
               if (progressWrap) progressWrap.style.display = 'none';
             }, 4000);
+            sessionStorage.removeItem('gnps-current-upload-task');
             await refreshLibraries();
           } else if (sd.status === "error" || sd.status === "not_found") {
             if (indexMessage) {
               indexMessage.textContent = `Indexing failed: ${sd.error || 'Task context lost.'}`;
               indexMessage.style.color = "var(--danger)";
             }
-            setTimeout(() => { 
-              if (progressWrap) progressWrap.style.display = 'none'; 
+            showGlobalNotification(
+              'Indexing Failed',
+              sd.error || 'Unknown error during indexing',
+              'error',
+              0
+            );
+            setTimeout(() => {
+              if (progressWrap) progressWrap.style.display = 'none';
             }, 6000);
+            sessionStorage.removeItem('gnps-current-upload-task');
           }
         } catch (pollErr) {
           console.error("Polling error:", pollErr);
           setTimeout(checkStatus, 2000);
         }
       };
-      
+
       setTimeout(checkStatus, 1000);
     }
 

@@ -17,10 +17,36 @@
   <a href="/submit/mshub_gc">GC-MS</a>
   <a href="/submit/mcn">MCN</a>
   <div class="nav-controls">
+    <div class="notif-bell-wrap" id="notif-bell-wrap">
+      <button class="nav-notif-btn" id="notif-btn" onclick="toggleNotifPanel(event)" title="Notifications">
+        &#128276;
+        <span class="notif-badge" id="notif-badge" style="display:none;">0</span>
+      </button>
+      <div class="notif-panel" id="notif-panel" style="display:none;">
+        <div class="notif-panel-header">
+          <span class="notif-panel-title">Notifications</span>
+          <button class="notif-clear-btn" onclick="clearAllNotifications()">Clear all</button>
+        </div>
+        <div class="notif-list" id="notif-list">
+          <div class="notif-empty" id="notif-empty">No notifications yet</div>
+        </div>
+      </div>
+    </div>
     <button id="theme-toggle" class="nav-theme-btn" onclick="toggleTheme()">LIGHT</button>
     <a href="/settings" id="gear-btn" class="nav-gear-btn" title="Settings">&#9881;</a>
   </div>
 </nav>
+
+<div id="global-notification" class="global-notification" style="display:none;">
+  <div class="notification-content">
+    <span id="notification-icon" class="notification-icon"></span>
+    <div class="notification-text">
+      <div id="notification-title"></div>
+      <div id="notification-message"></div>
+    </div>
+    <button class="notification-close" onclick="closeGlobalNotification()">&times;</button>
+  </div>
+</div>
 
 <main>
 {% block content %}{% endblock %}
