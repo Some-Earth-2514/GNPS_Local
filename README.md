@@ -1,6 +1,6 @@
 <p align="right">
-    <img src="https://img.shields.io/badge/clones-70-blue" alt="Clones">
-    <img src="https://img.shields.io/badge/forks-6-green" alt="Clones">
+    <img src="https://img.shields.io/badge/clones-1081-blue" alt="Clones">
+    <img src="https://img.shields.io/badge/forks-9-green" alt="Clones">
 <p align="center">
     <h1 align="center">GNPS Local</h1>
     <p align="center">Local optimization of GNPS for single-user, offline metabolomics analysis</p>
