@@ -16,8 +16,10 @@ Pipeline (from flow.xml):
        outputs: quantification.csv
 """
 
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
+from xml.sax.saxutils import escape, quoteattr
 
 if TYPE_CHECKING:
     from orchestrator import Job
@@ -31,7 +33,7 @@ def run(job: "Job") -> bool:
     input_dir = job.input_dir
     out = job.output_dir
 
-    import sys; python = sys.executable
+    python = sys.executable
 
     # Locate input spectra (mzML or CDF files)
     spectra_files = list(input_dir.glob("*.mzML")) + list(input_dir.glob("*.mzml")) + \
@@ -116,6 +118,7 @@ def _write_workflow_params(path: Path, params: dict):
     for k, v in params.items():
         if v is None or str(v).strip() == "":
             continue
-        lines.append(f'  <parameter name="{k}">{v}</parameter>')
+        # Escape XML special characters in both name attribute and text value
+        lines.append(f'  <parameter name={quoteattr(k)}>{escape(str(v))}</parameter>')
     lines.append("</parameters>")
     path.write_text("\n".join(lines))

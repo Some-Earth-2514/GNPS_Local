@@ -19,6 +19,235 @@ function toggleTheme() {
   if (typeof window._onThemeChange === 'function') window._onThemeChange(next);
 }
 
+/* ── HTML escaping ───────────────────────────────────────────────────────── */
+document.addEventListener('click', e => {
+    const btn = e.target.closest('.lib-delete-btn');
+    if (btn) deleteLibrary(btn.closest('tr').dataset.name);
+});
+
+/* ── Notification History (persisted in localStorage) ────────────────────── */
+const NOTIF_STORAGE_KEY = 'gnps-notif-history';
+const NOTIF_MAX = 50;
+
+function _loadNotifHistory() {
+  try { return JSON.parse(localStorage.getItem(NOTIF_STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function _saveNotifHistory(history) {
+  try { localStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(history)); }
+  catch {}
+}
+
+function _pushNotifHistory(title, message, type) {
+  const history = _loadNotifHistory();
+  history.unshift({ title, message, type, time: Date.now(), unread: true });
+  if (history.length > NOTIF_MAX) history.length = NOTIF_MAX;
+  _saveNotifHistory(history);
+  _renderNotifPanel();
+  _updateNotifBadge();
+}
+
+function _fmtNotifTime(ts) {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60)   return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function _renderNotifPanel() {
+  const listEl  = document.getElementById('notif-list');
+  const emptyEl = document.getElementById('notif-empty');
+  if (!listEl) return;
+
+  const history = _loadNotifHistory();
+  if (!history.length) {
+    if (emptyEl) emptyEl.style.display = 'block';
+    // Remove any existing items
+    listEl.querySelectorAll('.notif-item').forEach(el => el.remove());
+    return;
+  }
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  // Rebuild list
+  listEl.querySelectorAll('.notif-item').forEach(el => el.remove());
+  const icons = { success: '✓', warning: '⚠', error: '✕', info: 'ℹ' };
+  history.forEach(n => {
+    const item = document.createElement('div');
+    item.className = 'notif-item' + (n.unread ? ' unread' : '');
+    item.innerHTML = `
+      <span class="notif-item-icon ${n.type}">${icons[n.type] || 'ℹ'}</span>
+      <div class="notif-item-body">
+        <div class="notif-item-title">${escapeHtml(n.title)}</div>
+        <div class="notif-item-message">${escapeHtml(n.message)}</div>
+      </div>
+      <span class="notif-item-time">${_fmtNotifTime(n.time)}</span>
+    `;
+    listEl.appendChild(item);
+  });
+}
+
+function _updateNotifBadge() {
+  const badge = document.getElementById('notif-badge');
+  if (!badge) return;
+  const unread = _loadNotifHistory().filter(n => n.unread).length;
+  if (unread > 0) {
+    badge.textContent = unread > 9 ? '9+' : unread;
+    badge.style.display = 'flex';
+  } else {
+    badge.style.display = 'none';
+  }
+}
+
+function _markAllRead() {
+  const history = _loadNotifHistory().map(n => ({ ...n, unread: false }));
+  _saveNotifHistory(history);
+  _updateNotifBadge();
+  // Remove unread highlight without full re-render
+  document.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread'));
+}
+
+function toggleNotifPanel(e) {
+  e.stopPropagation();
+  const panel = document.getElementById('notif-panel');
+  if (!panel) return;
+  const isOpen = panel.style.display !== 'none';
+  panel.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    _renderNotifPanel();
+    _markAllRead();
+  }
+}
+
+function clearAllNotifications() {
+  _saveNotifHistory([]);
+  _renderNotifPanel();
+  _updateNotifBadge();
+}
+
+// Close panel when clicking outside
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('notif-bell-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    const panel = document.getElementById('notif-panel');
+    if (panel) panel.style.display = 'none';
+  }
+});
+
+/* ── Global Notification Toast ───────────────────────────────────────────── */
+let _notifAutoDismissTimer = null;
+
+function showGlobalNotification(title, message, type = 'info', duration = 6000) {
+  // Only record terminal states (success/error) — skip transient warning toasts
+  if (type === 'success' || type === 'error') {
+    _pushNotifHistory(title, message, type);
+  }
+
+  const notifEl = document.getElementById('global-notification');
+  if (!notifEl) return;
+  const content = notifEl.querySelector('.notification-content');
+  const titleEl = document.getElementById('notification-title');
+  const msgEl   = document.getElementById('notification-message');
+  const iconEl  = document.getElementById('notification-icon');
+  if (!content || !titleEl || !msgEl || !iconEl) return;
+
+  if (_notifAutoDismissTimer) {
+    clearTimeout(_notifAutoDismissTimer);
+    _notifAutoDismissTimer = null;
+  }
+
+  titleEl.textContent = title;
+  msgEl.textContent   = message;
+
+  content.className = 'notification-content';
+  if (type === 'success') {
+    content.classList.add('success');
+    iconEl.textContent = '✓';
+  } else if (type === 'warning') {
+    content.classList.add('warning');
+    iconEl.textContent = '⚠';
+  } else if (type === 'error') {
+    content.classList.add('error');
+    iconEl.textContent = '✕';
+  } else {
+    iconEl.textContent = 'ℹ';
+  }
+
+  notifEl.style.display = 'block';
+
+  if (duration > 0) {
+    _notifAutoDismissTimer = setTimeout(() => {
+      notifEl.style.display = 'none';
+      _notifAutoDismissTimer = null;
+    }, duration);
+  }
+}
+
+function closeGlobalNotification() {
+  const notifEl = document.getElementById('global-notification');
+  if (notifEl) notifEl.style.display = 'none';
+  if (_notifAutoDismissTimer) {
+    clearTimeout(_notifAutoDismissTimer);
+    _notifAutoDismissTimer = null;
+  }
+}
+
+/* ── Upload Task Background Poller ───────────────────────────────────────── */
+let _globalUploadPollTimer = null;
+
+function _pollUploadTaskGlobal(taskId) {
+  if (_globalUploadPollTimer) clearTimeout(_globalUploadPollTimer);
+
+  fetch(`/api/libraries/index-status/${taskId}`)
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d) {
+        _globalUploadPollTimer = setTimeout(() => _pollUploadTaskGlobal(taskId), 3000);
+        return;
+      }
+      if (d.status === 'queued' || d.status === 'building') {
+        showGlobalNotification(
+          d.status === 'building' ? 'Building Indexes…' : 'Indexing Queued',
+          `Processing ${d.files ? d.files.length : '?'} library file(s) in background`,
+          'warning',
+          0
+        );
+        _globalUploadPollTimer = setTimeout(() => _pollUploadTaskGlobal(taskId), 3000);
+      } else if (d.status === 'done') {
+        showGlobalNotification(
+          'Libraries Indexed',
+          `Successfully built indexes for ${d.files ? d.files.length : '?'} library file(s)`,
+          'success',
+          8000
+        );
+        sessionStorage.removeItem('gnps-current-upload-task');
+      } else {
+        showGlobalNotification(
+          'Indexing Failed',
+          d.error || 'Unknown error during indexing. Please retry the upload.',
+          'error',
+          0
+        );
+        sessionStorage.removeItem('gnps-current-upload-task');
+      }
+    })
+    .catch(() => {
+      _globalUploadPollTimer = setTimeout(() => _pollUploadTaskGlobal(taskId), 3000);
+    });
+}
+
+function checkAndShowUploadNotification() {
+  const taskId = sessionStorage.getItem('gnps-current-upload-task');
+  if (!taskId) return;
+  _pollUploadTaskGlobal(taskId);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  _updateNotifBadge();
+  checkAndShowUploadNotification();
+});
+
 /* ── File-drop zones ─────────────────────────────────────────────────────── */
 function _initDropZone(zone) {
   const input       = zone.querySelector('input[type=file]');
@@ -54,7 +283,7 @@ function _initDropZone(zone) {
     if (placeholder) placeholder.style.display = files.length ? 'none' : 'block';
     if (fileList) {
       fileList.style.display = files.length ? 'block' : 'none';
-      fileList.innerHTML     = files.map(f => `<div>${f.name}</div>`).join('');
+      fileList.innerHTML     = files.map(f => `<div>${escapeHtml(f.name)}</div>`).join('');
     }
   });
 }
@@ -114,7 +343,7 @@ function updateMCNSettings(scoreInput, topkInput, maxCompInput, mcnSelectEl, hin
     topkInput.max       = 10000;
 
     maxCompInput.value           = 0;
-    maxCompInput.disabled        = true;
+    maxCompInput.readOnly        = true;
     maxCompInput.style.opacity   = 0.5;
 
     clampInput(scoreInput);
@@ -128,7 +357,7 @@ function updateMCNSettings(scoreInput, topkInput, maxCompInput, mcnSelectEl, hin
     topkInput.min       = 1;
     topkInput.max       = '';
 
-    maxCompInput.disabled        = false;
+    maxCompInput.readOnly        = false;
     maxCompInput.style.opacity   = 1;
     maxCompInput.value           = 100;
   }
@@ -240,7 +469,7 @@ function renderTimingBar(timings, barEl, legendEl, totalEl, tipEl) {
       if (tipEl) {
         tipEl.style.display = 'block';
         tipEl.innerHTML = `
-          <div style="font-weight:600;margin-bottom:4px;word-break:break-all;overflow-wrap:break-word;line-height:1.4;">${t.step}</div>
+          <div style="font-weight:600;margin-bottom:4px;word-break:break-all;overflow-wrap:break-word;line-height:1.4;">${escapeHtml(t.step)}</div>
           <div style="color:var(--muted);">${track.label}</div>
           <div style="margin-top:6px;">${fmtDur(t.duration_s)}</div>
           <div style="color:${t.status === 'ok' ? 'var(--success)' : 'var(--danger)'};font-size:10px;margin-top:2px;">${t.status.toUpperCase()}</div>
@@ -353,7 +582,7 @@ function renderRecentJobs(jobs) {
       });
     } catch (e) { createdStr = job.created_at.slice(0, 16); }
     return `<tr>
-      <td>${job.params.JOB_NAME || '—'}</td>
+      <td>${escapeHtml(job.params.JOB_NAME || '—')}</td>
       <td class="mono">${job.id}</td>
       <td>${wf}</td>
       <td><span class="badge badge-${job.status}">${job.status.toUpperCase()}</span></td>
@@ -534,10 +763,10 @@ document.addEventListener('DOMContentLoaded', function () {
     files.forEach(f => {
       const kb = (f.size / 1024).toFixed(1);
       html += `<tr>
-        <td>${f.name}</td>
+        <td>${escapeHtml(f.name)}</td>
         <td class="muted file-size-cell">${kb} KB</td>
         <td class="file-dl-cell">
-          <a href="/api/job/${jobId}/download/${f.path}" class="btn btn-ghost btn-sm">↓</a>
+          <a href="/api/job/${jobId}/download/${f.path.split('/').map(encodeURIComponent).join('/')}" class="btn btn-ghost btn-sm">↓</a>
         </td>
       </tr>`;
     });
@@ -653,46 +882,64 @@ async function uploadLibraries() {
         if (progressWrap) progressWrap.style.display = 'none';
 
       const taskId = d.task_id;
-      
+      console.log('[Upload] Got taskId:', taskId, 'Saved to sessionStorage');
+      sessionStorage.setItem('gnps-current-upload-task', taskId);  // Save for global notification
+
       const checkStatus = async () => {
         try {
+          console.log('[Upload-checkStatus] Polling task:', taskId);
           const sr = await fetch(`/api/libraries/index-status/${taskId}`);
           if (!sr.ok) return setTimeout(checkStatus, 2000);
           const sd = await sr.json();
-          
+
           if (sd.status === "queued" || sd.status === "building") {
             if (indexMessage) {
               indexMessage.style.color = 'var(--warning)';
-              indexMessage.innerHTML = sd.status === "building" 
+              indexMessage.innerHTML = sd.status === "building"
                 ? '<span class="indexing-pulse"></span> Building database indexes... (this may take a few minutes)'
                 : '<span class="indexing-pulse"></span> Task queued in thread worker pool...';
             }
             setTimeout(checkStatus, 2000);
           } else if (sd.status === "done") {
+            console.log('[Upload] Indexing complete, calling showGlobalNotification');
             if (indexMessage) {
               indexMessage.innerHTML = "✓ Indexes built successfully!";
               indexMessage.style.color = "var(--success)";
             }
-            setTimeout(() => { 
-              if (indexProgress) indexProgress.style.display = 'none'; 
+            showGlobalNotification(
+              'Libraries Indexed',
+              `Successfully built indexes for ${sd.files ? sd.files.length : '?'} file(s)`,
+              'success',
+              7000
+            );
+            setTimeout(() => {
+              if (indexProgress) indexProgress.style.display = 'none';
               if (progressWrap) progressWrap.style.display = 'none';
             }, 4000);
+            sessionStorage.removeItem('gnps-current-upload-task');
             await refreshLibraries();
           } else if (sd.status === "error" || sd.status === "not_found") {
             if (indexMessage) {
               indexMessage.textContent = `Indexing failed: ${sd.error || 'Task context lost.'}`;
               indexMessage.style.color = "var(--danger)";
             }
-            setTimeout(() => { 
-              if (progressWrap) progressWrap.style.display = 'none'; 
+            showGlobalNotification(
+              'Indexing Failed',
+              sd.error || 'Unknown error during indexing',
+              'error',
+              0
+            );
+            setTimeout(() => {
+              if (progressWrap) progressWrap.style.display = 'none';
             }, 6000);
+            sessionStorage.removeItem('gnps-current-upload-task');
           }
         } catch (pollErr) {
           console.error("Polling error:", pollErr);
           setTimeout(checkStatus, 2000);
         }
       };
-      
+
       setTimeout(checkStatus, 1000);
     }
 
@@ -761,6 +1008,11 @@ async function deleteSelectedLibraries() {
   }
   await refreshLibraries();
 }
+
+document.addEventListener('click', e => {
+    const btn = e.target.closest('.lib-delete-btn');
+    if (btn) deleteLibrary(btn.closest('tr').dataset.name);
+});
 
 async function deleteLibrary(filename) {
   if (!confirm('Are you sure? This will delete that library causing library search to fail.')) return;
@@ -846,12 +1098,12 @@ async function refreshLibraries() {
   </tr></thead><tbody id="libs-tbody">`;
 
   libs.forEach(lib => {
-    html += `<tr data-name="${lib.name}" data-size="${lib.size_bytes}">
+    html += `<tr data-name="${escapeHtml(lib.name)}" data-size="${lib.size_bytes}">
       <td class="lib-col-check"><input type="checkbox" class="lib-checkbox lib-row-check" onchange="onLibCheckChange()"></td>
-      <td class="mono lib-name-cell">${lib.name}</td>
+      <td class="mono lib-name-cell">${escapeHtml(lib.name)}</td>
       <td class="muted lib-size-cell" data-bytes="${lib.size_bytes}">${formatBytes(lib.size_bytes)}</td>
       <td class="lib-col-action">
-        <button class="btn btn-ghost btn-danger-ghost btn-sm" onclick="deleteLibrary('${lib.name}')">Delete</button>
+        <button class="btn btn-ghost btn-danger-ghost btn-sm lib-delete-btn>Delete</button>
       </td>
     </tr>`;
   });
@@ -888,7 +1140,7 @@ function renderAggregate(data) {
     ].map(c => `
       <div class="about-tile">
         <div class="perf-section-label">${c.label}</div>
-        <div class="perf-summary-value">${c.value}</div>
+        <div class="perf-summary-value">${escapeHtml(c.value)}</div>
       </div>
     `).join('');
   }
@@ -911,7 +1163,7 @@ function renderAggregate(data) {
     const barPct  = maxAvg > 0 ? (st.avg_s / maxAvg) * 100 : 0;
     const failPct = st.count > 0 ? Math.round(st.failure_count / st.count * 100) : 0;
     return `<div class="perf-step-row">
-      <div class="perf-step-name" title="${st.step}">${st.step}</div>
+      <div class="perf-step-name" title="${escapeHtml(st.step)}">${escapeHtml(st.step)}</div>
       <div class="perf-step-track"><div class="perf-step-fill" style="width:${barPct}%;background:${color};"></div></div>
       <div class="muted perf-step-dur">${fmtDur(st.avg_s)}</div>
       <div class="perf-step-fail ${failPct > 0 ? 'has-failures' : ''}">${failPct > 0 ? failPct + '% fail' : ''}</div>

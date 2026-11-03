@@ -131,7 +131,7 @@
               {%- else %}{{ (b/1e3)|round(1) }} KB{% endif -%}
             </td>
             <td style="text-align:right;">
-              <button class="btn btn-ghost" style="padding:3px 9px; font-size:11px; color:var(--danger); border-color:var(--danger);"
+              <button class="btn btn-ghost lib-delete-btn" style="padding:3px 9px; font-size:11px; color:var(--danger); border-color:var(--danger);"
                       onclick="deleteLibrary('{{ lib.name }}')">Delete</button>
             </td>
           </tr>

@@ -25,9 +25,13 @@ Skipped (external dependencies / optional):
   - metabolomics_convert_graphml_iin_collapse (IIN variant, optional)
 """
 
+import fnmatch
 import os
+import shutil
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
+from xml.sax.saxutils import escape, quoteattr
 
 if TYPE_CHECKING:
     from orchestrator import Job
@@ -40,7 +44,6 @@ LIBSEARCH_BINARY = REPO_ROOT / "molecular-librarysearch-v2" / "tools" / "molecul
 LOCAL_ANNOT_SCRIPT = Path(__file__).parent / "getGNPS_library_annotations_local.py"
 
 def run(job: "Job") -> bool:
-    import sys
     p = job.params
     input_dir = job.input_dir
     out = job.output_dir
@@ -97,10 +100,9 @@ def run(job: "Job") -> bool:
     # Move MGF into its own subfolder so other input files don't interfere
     spectra_input_dir = input_dir / "spectra"
     spectra_input_dir.mkdir(exist_ok=True)
-    import shutil as _shutil
     mgf_dest = spectra_input_dir / mgf_file.name
     if not mgf_dest.exists():
-        _shutil.copy2(str(mgf_file), str(mgf_dest))
+        shutil.copy2(str(mgf_file), str(mgf_dest))
     job.log(f"Spectra input dir: {spectra_input_dir}")
 
     # Intermediate paths
@@ -142,8 +144,14 @@ def run(job: "Job") -> bool:
     _write_workflow_params(workflow_params_file, p)
 
     # ── Step 1: Metadata merge ────────────────────────────────────────────────
-    meta_input = str(metadata_file) if metadata_file else str(out / "empty_metadata")
-    (out / "empty_metadata").mkdir(exist_ok=True)
+    # format_metadata.py globs metadata_folder/* and requires a folder, not a file
+    metadata_input_dir = out / "metadata_input"
+    metadata_input_dir.mkdir(exist_ok=True)
+    if metadata_file:
+        metadata_dest = metadata_input_dir / metadata_file.name
+        if not metadata_dest.exists():
+            shutil.copy2(str(metadata_file), str(metadata_dest))
+    meta_input = str(metadata_input_dir)
     job.run_step("metadata_merge", [
         python, str(SCRIPTS / "format_metadata.py"),
         str(workflow_params_file),
@@ -355,7 +363,9 @@ def run(job: "Job") -> bool:
 
         class _MCNJob:
             def __init__(self):
+                self.id = job.id
                 self.params = {
+                    "JOB_NAME": p.get("JOB_NAME", ""),
                     "MCN_K": p.get("MCN_K", "20"),
                     "MCN_C": p.get("MCN_C", "0.75"),
                     "MCN_SEED": p.get("MCN_SEED", "123"),
@@ -373,9 +383,8 @@ def run(job: "Job") -> bool:
     job.log("Key outputs:")
     job.log(f"  GraphML network:            {graphml_file}")
     if p.get("MOLECULAR_COMMUNITY_NETWORKING") == "1":
-        job.log(f"  MCN full graph:             {out / 'gnps_mcn.graphml'}")
-        job.log(f"  MCN cut graph:              {out / 'gnps_mcn_cut.graphml'}")
-        job.log(f"  MCN spanning tree:          {out / 'gnps_mcn_spanning_tree.graphml'}")
+        for mcn_file in sorted((out / "mcn").glob("*.graphml")):
+            job.log(f"  MCN graph:                  {out / mcn_file.name}")
     job.log(f"  Clusterinfo enriched:       {clusterinfo_enriched}")
     job.log(f"  Network edges:              {networkedges_selfloop}")
     job.log(f"  Library search results:     {libsearch_db}")
@@ -384,7 +393,6 @@ def run(job: "Job") -> bool:
 
 
 def _find_input(directory: Path, patterns: list, exclude: str = None, exclude_also: list = None) -> Path | None:
-    import fnmatch
     candidates = list(directory.iterdir())
     for pattern in patterns:
         for f in candidates:
@@ -413,7 +421,8 @@ def _write_workflow_params(path: Path, params: dict):
         # xmltodict parse_xml_file crashes on empty #text — skip blank values
         if v is None or str(v).strip() == "":
             continue
-        lines.append(f'  <parameter name="{k}">{v}</parameter>')
+        # Escape XML special characters in both name attribute and text value
+        lines.append(f'  <parameter name={quoteattr(k)}>{escape(str(v))}</parameter>')
     lines.append("</parameters>")
     path.write_text("\n".join(lines))
 

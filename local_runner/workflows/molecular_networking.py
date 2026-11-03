@@ -22,8 +22,11 @@ Skipped (require external services):
   - create_linkout_file (MassIVE submission)
 """
 
+import shutil
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
+from xml.sax.saxutils import escape, quoteattr
 
 if TYPE_CHECKING:
     from orchestrator import Job
@@ -82,7 +85,7 @@ def run(job: "Job") -> bool:
     _ensure_empty_file(out / "empty_attributemapping.csv")
     _ensure_empty_file(out / "empty_metadata.tsv")
 
-    import sys; python = sys.executable
+    python = sys.executable
 
     # ── Step 1: Generate MSCluster parameters ────────────────────────────────
     ok = job.run_step("specnets_param_gen", [
@@ -215,7 +218,6 @@ def run(job: "Job") -> bool:
     ])
     if not ok:
         job.log("WARNING: clusterinfo enrichment failed, using plain summary")
-        import shutil
         shutil.copy(clusterinfo_summary, clusterinfo_enriched)
 
     # ── Step 11: Add component index ─────────────────────────────────────────
@@ -240,7 +242,6 @@ def run(job: "Job") -> bool:
     ])
     if not ok:
         job.log("WARNING: network edges display failed, copying raw edges")
-        import shutil
         shutil.copy(networkedges_file, networkedges_selfloop)
 
     # ── Step 13: Library search (if library available) ────────────────────────
@@ -308,7 +309,8 @@ def _write_workflow_params(path: Path, params: dict):
     for k, v in params.items():
         if v is None or str(v).strip() == "":
             continue
-        lines.append(f'  <parameter name="{k}">{v}</parameter>')
+        # Escape XML special characters in both name attribute and text value
+        lines.append(f'  <parameter name={quoteattr(k)}>{escape(str(v))}</parameter>')
     lines.append("</parameters>")
     path.write_text("\n".join(lines))
 

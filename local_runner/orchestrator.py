@@ -85,6 +85,10 @@ class Job:
 
     def run_step(self, step_name: str, cmd: list[str], cwd: Optional[Path] = None, timeout: int = 3600) -> bool:
         """Run a single pipeline step. Returns True on success."""
+        # Cancelled between steps: kill_job only kills the running process, so don't spawn the next one.
+        if self.status == JobStatus.CANCELED:
+            self.log(f"Job canceled, skipping step: {step_name}")
+            return False
         self.log(f"--- STEP: {step_name} ---")
         self.log(f"CMD: {' '.join(str(c) for c in cmd)}")
         try:
@@ -212,10 +216,33 @@ def get_job(job_id: str) -> Optional[Job]:
         job.input_dir = job.job_dir / "input"
         job.output_dir = job.job_dir / "output"
         job.log_file = job.job_dir / "run.log"
+        job.process = None  # not persisted in state.json; nothing is running after a restart
         with _lock:
             _jobs[job_id] = job
         return job
     return None
+
+
+def reconcile_interrupted_jobs() -> int:
+    """Mark jobs left queued/running on disk as failed. Call once at server startup:
+    their worker threads and subprocesses died with the previous process."""
+    count = 0
+    for state_file in JOBS_ROOT.glob("*/state.json"):
+        try:
+            data = json.loads(state_file.read_text())
+        except Exception:
+            continue
+        if data.get("status") not in (JobStatus.QUEUED.value, JobStatus.RUNNING.value):
+            continue
+        now = datetime.now(timezone.utc)
+        data["status"] = JobStatus.FAILED.value
+        data["error"] = "Interrupted by server restart"
+        data["finished_at"] = now.isoformat()
+        state_file.write_text(json.dumps(data, indent=2))
+        with open(state_file.parent / "run.log", "a") as f:
+            f.write(f"[{now.strftime('%H:%M:%S')}] Job interrupted by server restart; marked failed.\n")
+        count += 1
+    return count
 
 
 def list_jobs() -> list[dict]:
