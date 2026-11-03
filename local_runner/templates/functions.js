@@ -19,6 +19,12 @@ function toggleTheme() {
   if (typeof window._onThemeChange === 'function') window._onThemeChange(next);
 }
 
+/* ── HTML escaping ───────────────────────────────────────────────────────── */
+document.addEventListener('click', e => {
+    const btn = e.target.closest('.lib-delete-btn');
+    if (btn) deleteLibrary(btn.closest('tr').dataset.name);
+});
+
 /* ── Notification History (persisted in localStorage) ────────────────────── */
 const NOTIF_STORAGE_KEY = 'gnps-notif-history';
 const NOTIF_MAX = 50;
@@ -73,8 +79,8 @@ function _renderNotifPanel() {
     item.innerHTML = `
       <span class="notif-item-icon ${n.type}">${icons[n.type] || 'ℹ'}</span>
       <div class="notif-item-body">
-        <div class="notif-item-title">${n.title}</div>
-        <div class="notif-item-message">${n.message}</div>
+        <div class="notif-item-title">${escapeHtml(n.title)}</div>
+        <div class="notif-item-message">${escapeHtml(n.message)}</div>
       </div>
       <span class="notif-item-time">${_fmtNotifTime(n.time)}</span>
     `;
@@ -277,7 +283,7 @@ function _initDropZone(zone) {
     if (placeholder) placeholder.style.display = files.length ? 'none' : 'block';
     if (fileList) {
       fileList.style.display = files.length ? 'block' : 'none';
-      fileList.innerHTML     = files.map(f => `<div>${f.name}</div>`).join('');
+      fileList.innerHTML     = files.map(f => `<div>${escapeHtml(f.name)}</div>`).join('');
     }
   });
 }
@@ -337,7 +343,7 @@ function updateMCNSettings(scoreInput, topkInput, maxCompInput, mcnSelectEl, hin
     topkInput.max       = 10000;
 
     maxCompInput.value           = 0;
-    maxCompInput.disabled        = true;
+    maxCompInput.readOnly        = true;
     maxCompInput.style.opacity   = 0.5;
 
     clampInput(scoreInput);
@@ -351,7 +357,7 @@ function updateMCNSettings(scoreInput, topkInput, maxCompInput, mcnSelectEl, hin
     topkInput.min       = 1;
     topkInput.max       = '';
 
-    maxCompInput.disabled        = false;
+    maxCompInput.readOnly        = false;
     maxCompInput.style.opacity   = 1;
     maxCompInput.value           = 100;
   }
@@ -463,7 +469,7 @@ function renderTimingBar(timings, barEl, legendEl, totalEl, tipEl) {
       if (tipEl) {
         tipEl.style.display = 'block';
         tipEl.innerHTML = `
-          <div style="font-weight:600;margin-bottom:4px;word-break:break-all;overflow-wrap:break-word;line-height:1.4;">${t.step}</div>
+          <div style="font-weight:600;margin-bottom:4px;word-break:break-all;overflow-wrap:break-word;line-height:1.4;">${escapeHtml(t.step)}</div>
           <div style="color:var(--muted);">${track.label}</div>
           <div style="margin-top:6px;">${fmtDur(t.duration_s)}</div>
           <div style="color:${t.status === 'ok' ? 'var(--success)' : 'var(--danger)'};font-size:10px;margin-top:2px;">${t.status.toUpperCase()}</div>
@@ -576,7 +582,7 @@ function renderRecentJobs(jobs) {
       });
     } catch (e) { createdStr = job.created_at.slice(0, 16); }
     return `<tr>
-      <td>${job.params.JOB_NAME || '—'}</td>
+      <td>${escapeHtml(job.params.JOB_NAME || '—')}</td>
       <td class="mono">${job.id}</td>
       <td>${wf}</td>
       <td><span class="badge badge-${job.status}">${job.status.toUpperCase()}</span></td>
@@ -757,10 +763,10 @@ document.addEventListener('DOMContentLoaded', function () {
     files.forEach(f => {
       const kb = (f.size / 1024).toFixed(1);
       html += `<tr>
-        <td>${f.name}</td>
+        <td>${escapeHtml(f.name)}</td>
         <td class="muted file-size-cell">${kb} KB</td>
         <td class="file-dl-cell">
-          <a href="/api/job/${jobId}/download/${f.path}" class="btn btn-ghost btn-sm">↓</a>
+          <a href="/api/job/${jobId}/download/${f.path.split('/').map(encodeURIComponent).join('/')}" class="btn btn-ghost btn-sm">↓</a>
         </td>
       </tr>`;
     });
@@ -1003,6 +1009,11 @@ async function deleteSelectedLibraries() {
   await refreshLibraries();
 }
 
+document.addEventListener('click', e => {
+    const btn = e.target.closest('.lib-delete-btn');
+    if (btn) deleteLibrary(btn.closest('tr').dataset.name);
+});
+
 async function deleteLibrary(filename) {
   if (!confirm('Are you sure? This will delete that library causing library search to fail.')) return;
   try {
@@ -1087,12 +1098,12 @@ async function refreshLibraries() {
   </tr></thead><tbody id="libs-tbody">`;
 
   libs.forEach(lib => {
-    html += `<tr data-name="${lib.name}" data-size="${lib.size_bytes}">
+    html += `<tr data-name="${escapeHtml(lib.name)}" data-size="${lib.size_bytes}">
       <td class="lib-col-check"><input type="checkbox" class="lib-checkbox lib-row-check" onchange="onLibCheckChange()"></td>
-      <td class="mono lib-name-cell">${lib.name}</td>
+      <td class="mono lib-name-cell">${escapeHtml(lib.name)}</td>
       <td class="muted lib-size-cell" data-bytes="${lib.size_bytes}">${formatBytes(lib.size_bytes)}</td>
       <td class="lib-col-action">
-        <button class="btn btn-ghost btn-danger-ghost btn-sm" onclick="deleteLibrary('${lib.name}')">Delete</button>
+        <button class="btn btn-ghost btn-danger-ghost btn-sm lib-delete-btn>Delete</button>
       </td>
     </tr>`;
   });
@@ -1129,7 +1140,7 @@ function renderAggregate(data) {
     ].map(c => `
       <div class="about-tile">
         <div class="perf-section-label">${c.label}</div>
-        <div class="perf-summary-value">${c.value}</div>
+        <div class="perf-summary-value">${escapeHtml(c.value)}</div>
       </div>
     `).join('');
   }
@@ -1152,7 +1163,7 @@ function renderAggregate(data) {
     const barPct  = maxAvg > 0 ? (st.avg_s / maxAvg) * 100 : 0;
     const failPct = st.count > 0 ? Math.round(st.failure_count / st.count * 100) : 0;
     return `<div class="perf-step-row">
-      <div class="perf-step-name" title="${st.step}">${st.step}</div>
+      <div class="perf-step-name" title="${escapeHtml(st.step)}">${escapeHtml(st.step)}</div>
       <div class="perf-step-track"><div class="perf-step-fill" style="width:${barPct}%;background:${color};"></div></div>
       <div class="muted perf-step-dur">${fmtDur(st.avg_s)}</div>
       <div class="perf-step-fail ${failPct > 0 ? 'has-failures' : ''}">${failPct > 0 ? failPct + '% fail' : ''}</div>

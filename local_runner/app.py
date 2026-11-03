@@ -3,7 +3,6 @@ GNPS Local - FastAPI application
 Replaces the ProteoSAFe web frontend for single-user local use.
 """
 
-import io
 import json
 import os
 import sys
@@ -18,6 +17,7 @@ from pathlib import Path
 from typing import Optional, List
 
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from fastapi import Request
@@ -112,11 +112,57 @@ async def api_get_files(job_id: str):
 
 @app.get("/api/job/{job_id}/download/{filename:path}")
 async def download_file(job_id: str, filename: str):
-    output_dir = orc.JOBS_ROOT / job_id / "output"
-    file_path = output_dir / filename
+    output_dir = (orc.JOBS_ROOT / job_id / "output").resolve()
+    file_path = (output_dir / filename).resolve()
+
+    if not file_path.is_relative_to(output_dir):
+        raise HTTPException(403, "Access denied")
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(404, "File not found")
     return FileResponse(str(file_path), filename=file_path.name)
+
+class _ChunkSink:
+    """Write-only, non-seekable file object that collects bytes for the zip generator."""
+
+    def __init__(self):
+        self._chunks = []
+        self._pos = 0
+
+        def write(self, data):
+            self._chunks.append(bytes(data))
+            self._pos += len(data)
+            return len(data)
+
+        def tell(self):
+            return self._pos
+
+        def flush(self):
+            pass
+
+        def drain(self):
+            data = b"".join(self._chunks)
+            self._chunks.clear()
+            return data
+
+
+def _stream_zip(root: Path, chunk_size: int = 1024 * 1024):
+    """Yield a zip archive of `root` incrementally; memory use stays ~chunk_size."""
+    sink = _ChunkSink()
+    with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in sorted(root.rglob("*")):
+            if not f.is_file():
+                continue
+            with open(f, "rb") as src, zf.open(
+                f.relative_to(root).as_posix(), "w", force_zip64=True
+            ) as dst:
+                while chunk := src.read(chunk_size):
+                    dst.write(chunk)
+                    data = sink.drain()
+                    if data:
+                        yield data
+    tail = sink.drain()
+    if tail:
+        yield tail
 
 
 @app.get("/api/job/{job_id}/download_all")
@@ -129,16 +175,9 @@ async def download_all_files(job_id: str):
     if not output_dir.exists():
         raise HTTPException(404, "No outputs yet")
 
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for f in sorted(output_dir.rglob("*")):
-            if f.is_file():
-                zf.write(f, f.relative_to(output_dir))
-    buf.seek(0)
-
     zip_name = f"gnps_job_{job_id}.zip"
     return StreamingResponse(
-        buf,
+        _stream_zip(output_dir),
         media_type="application/zip",
         headers={"Content-Disposition": f"attachment; filename={zip_name}"},
     )
@@ -345,21 +384,21 @@ async def submit_mcn(
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _copy_upload(src, dest_path: Path):
+    with open(dest_path, "wb") as out:
+        shutil.copyfileobj(src, out, length=1024 * 1024)
+
 async def _save_uploads(job, files: List[UploadFile], subfolder: Optional[str]):
     dest = job.input_dir / subfolder if subfolder else job.input_dir
     dest.mkdir(exist_ok=True)
     for f in files:
         if f.filename:
-            file_path = dest / Path(f.filename).name
-            with open(file_path, "wb") as out:
-                shutil.copyfileobj(f.file, out)
+            await run_in_threadpool(_copy_upload, f.file, dest / Path(f.filename).name)
 
 
 async def _save_single_upload(job, file: UploadFile, name: str):
     if file and file.filename:
-        file_path = job.input_dir / name
-        with open(file_path, "wb") as out:
-            shutil.copyfileobj(file.file, out)
+        await run_in_threadpool(_copy_upload, file.file, job.input_dir / name)
 
 # ── Libraries page ─────────────────────────────────────────────────────────────
 
@@ -394,8 +433,7 @@ async def api_upload_libraries(files: List[UploadFile] = File(...)):
             continue
         dest = library_dir / safe_name
 
-        # Read streaming file bytes securely
-        dest.write_bytes(await f.read())
+        await run_in_threadpool(_copy_upload, f.file, dest)
         saved.append(safe_name)
 
     if not saved:
