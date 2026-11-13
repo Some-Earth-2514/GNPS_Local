@@ -20,10 +20,15 @@ function toggleTheme() {
 }
 
 /* ── HTML escaping ───────────────────────────────────────────────────────── */
-document.addEventListener('click', e => {
-    const btn = e.target.closest('.lib-delete-btn');
-    if (btn) deleteLibrary(btn.closest('tr').dataset.name);
-});
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
 
 /* ── Notification History (persisted in localStorage) ────────────────────── */
 const NOTIF_STORAGE_KEY = 'gnps-notif-history';
@@ -1103,7 +1108,7 @@ async function refreshLibraries() {
       <td class="mono lib-name-cell">${escapeHtml(lib.name)}</td>
       <td class="muted lib-size-cell" data-bytes="${lib.size_bytes}">${formatBytes(lib.size_bytes)}</td>
       <td class="lib-col-action">
-        <button class="btn btn-ghost btn-danger-ghost btn-sm lib-delete-btn>Delete</button>
+        <button class="btn btn-ghost btn-danger-ghost btn-sm lib-delete-btn">Delete</button>
       </td>
     </tr>`;
   });

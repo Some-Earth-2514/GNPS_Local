@@ -128,21 +128,21 @@ class _ChunkSink:
         self._chunks = []
         self._pos = 0
 
-        def write(self, data):
-            self._chunks.append(bytes(data))
-            self._pos += len(data)
-            return len(data)
+    def write(self, data):
+        self._chunks.append(bytes(data))
+        self._pos += len(data)
+        return len(data)
 
-        def tell(self):
-            return self._pos
+    def tell(self):
+        return self._pos
 
-        def flush(self):
-            pass
+    def flush(self):
+        pass
 
-        def drain(self):
-            data = b"".join(self._chunks)
-            self._chunks.clear()
-            return data
+    def drain(self):
+        data = b"".join(self._chunks)
+        self._chunks.clear()
+        return data
 
 
 def _stream_zip(root: Path, chunk_size: int = 1024 * 1024):
